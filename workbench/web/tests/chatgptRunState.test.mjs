@@ -35,7 +35,7 @@ test('完成数以 imported 计数，不以 generated 计数', () => {
     current_attempt: { attempt_id: 'x', job_id: 'a', phase: 'staged' },
   });
   assert.equal(view.completed, 0);
-  assert.equal(view.progressText, '0/2 已导入');
+  assert.equal(view.total, 2);
   assert.equal(view.percent, 0);
 });
 
@@ -46,6 +46,7 @@ test('二十个任务按每批十项显示当前批次', () => {
     batches: [ids.slice(0, 10), ids.slice(10)], cursor: 12,
     counts: { total: 20, imported: 12, remaining: 8 }, revision: 20,
   });
-  assert.equal(view.batchText, '第 2/2 批');
+  assert.equal(view.currentBatch, 2);
+  assert.equal(view.batches, 2);
   assert.equal(view.percent, 60);
 });

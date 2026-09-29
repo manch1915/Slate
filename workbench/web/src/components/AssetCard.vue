@@ -7,6 +7,7 @@
  *  - states：人物的派生状态区（仅人物有，整段由父级提供）
  *  拖拽改挂：原生 drag 事件已在此 stop/prevent，父级只收 (row, ev) 转发事件。 */
 import { computed } from 'vue'
+import { t } from '../i18n'
 import type { AssetRegistryItem } from '../api'
 import Versions from './Versions.vue'
 import AssetChildCard from './AssetChildCard.vue'
@@ -47,8 +48,8 @@ const assetRef = computed(() => '@' + props.kind + ':' + props.id)
 const generating = computed(() => props.genning === props.kind + props.id)
 /** 人物有派生状态图，重生成母图必须 skip 状态图；与父级 @gen 的 doGen 参数联动。 */
 const genTitle = computed(() => props.kind === 'character'
-  ? '只重生成此母图（不碰派生状态图），旧版本自动保存'
-  : '重生成此母图并保存旧版本')
+  ? t('components.assetCard.genTitleCharacter')
+  : t('components.assetCard.genTitle'))
 
 function fwdDragStart(row: AssetRegistryItem, ev: DragEvent) { emit('drag-start', row, ev) }
 function fwdDragOver(row: AssetRegistryItem, ev: DragEvent) { emit('drag-over', row, ev) }
@@ -67,13 +68,13 @@ function fwdDrop(row: AssetRegistryItem, ev: DragEvent) { emit('drop', row, ev) 
         <slot name="badge" />
         <p class="mt-1 text-2xs text-slate-500"><slot name="meta" /></p>
       </div>
-      <div class="flex gap-1"><button class="btn btn-ghost btn-sm" @click="emit('create-child')">＋子素材</button></div>
+      <div class="flex gap-1"><button class="btn btn-ghost btn-sm" @click="emit('create-child')">{{ $t('components.assetCard.addChild') }}</button></div>
     </div>
-    <button v-if="imageUrlOf(asset)" class="mt-3 block w-full overflow-hidden rounded-xl border border-line bg-black/20" @click="emit('show', asset)"><img :src="imageUrlOf(asset)" class="h-56 w-full object-contain" :alt="name + '母素材'" /></button>
-    <div v-else class="mt-3 flex h-56 items-center justify-center rounded-xl border border-dashed border-line text-xs-plus text-slate-500">母图尚未生成</div>
-    <div class="mt-2 flex items-center gap-1.5"><button class="btn btn-ghost btn-sm flex-1" :disabled="genDisabled" :title="genTitle" @click="emit('gen')">{{ generating ? '生成中…' : '生成/重生成母图' }}</button><Versions :path="'projects/' + project + '/素材/' + KIND_DIR[kind] + '/' + id + '.png'" kind="image" @restored="emit('restored')" /></div>
+    <button v-if="imageUrlOf(asset)" class="mt-3 block w-full overflow-hidden rounded-xl border border-line bg-black/20" @click="emit('show', asset)"><img :src="imageUrlOf(asset)" class="h-56 w-full object-contain" :alt="$t('components.assetCard.parentAlt', { name })" /></button>
+    <div v-else class="mt-3 flex h-56 items-center justify-center rounded-xl border border-dashed border-line text-xs-plus text-slate-500">{{ $t('components.assetCard.parentMissing') }}</div>
+    <div class="mt-2 flex items-center gap-1.5"><button class="btn btn-ghost btn-sm flex-1" :disabled="genDisabled" :title="genTitle" @click="emit('gen')">{{ generating ? $t('common.generating') : $t('components.assetCard.genParent') }}</button><Versions :path="'projects/' + project + '/素材/' + KIND_DIR[kind] + '/' + id + '.png'" kind="image" @restored="emit('restored')" /></div>
     <div v-if="children?.length" class="mt-4 border-t border-line pt-3">
-      <div class="mb-2 flex items-center justify-between"><span class="text-xs-plus font-semibold text-slate-300">子素材（{{ children.length }}）</span><span class="text-2xs text-slate-500">生成时继承母图</span></div>
+      <div class="mb-2 flex items-center justify-between"><span class="text-xs-plus font-semibold text-slate-300">{{ $t('components.assetCard.children', { n: children.length }) }}</span><span class="text-2xs text-slate-500">{{ $t('components.assetCard.inherits') }}</span></div>
       <div class="grid gap-2 sm:grid-cols-2">
         <AssetChildCard v-for="child in children" :key="child.ref" :child="child" :project="project" :image-url-of="imageUrlOf" :relation-label="relationLabel" :genning="genning" :gen-disabled="genDisabled" :drag-target="dragTarget"
           @show="emit('show', $event)" @details="emit('details', $event)" @gen="emit('child-gen', $event)"

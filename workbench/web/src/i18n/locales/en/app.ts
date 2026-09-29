@@ -1,5 +1,7 @@
 // -*- coding: utf-8 -*-
+// Сгенерировано из мастер-словаря: zh / en / ru держим синхронно.
 import type zh from '../zh/app'
+
 export default {
   brand: 'Slate',
   docTitle: 'AI Short Film Workbench',
@@ -9,8 +11,8 @@ export default {
   language: 'Interface language',
   logout: 'Sign out',
   update: {
-    behind: 'Update available on GitHub ({n} commits behind)',
-    ahead: 'Local is {n} commits ahead (not pushed)',
+    behind: 'Update available on GitHub (commits behind: {n})',
+    ahead: 'Local is ahead (unpushed commits: {n})',
     latest: 'Up to date',
     pull: 'Pull update & restart',
     rollback: 'Roll back to previous version',

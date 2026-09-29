@@ -1,7 +1,11 @@
 // -*- coding: utf-8 -*-
-/** 导航与页面标题（侧边栏 + router meta 共用） */
+// Сгенерировано из мастер-словаря: zh / en / ru держим синхронно.
 export default {
-  groups: { make: '制作', lapian: '拉片', system: '系统' },
+  groups: {
+    make: '制作',
+    lapian: '拉片',
+    system: '系统'
+  },
   login: '登录',
   home: '首页',
   studio: '① 剧本生成',

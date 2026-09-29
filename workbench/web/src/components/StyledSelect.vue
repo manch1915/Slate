@@ -226,7 +226,7 @@ onBeforeUnmount(() => {
             ref="filterInput"
             v-model="filter"
             class="input !py-1.5 text-xs"
-            placeholder="过滤…"
+            :placeholder="$t('components.styledSelect.filter')"
             @keydown="onFilterKeydown"
           />
         </div>
@@ -249,7 +249,7 @@ onBeforeUnmount(() => {
               <path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
           </li>
-          <li v-if="!filtered.length" class="px-2.5 py-2 text-center text-xs-plus text-slate-500">无匹配项</li>
+          <li v-if="!filtered.length" class="px-2.5 py-2 text-center text-xs-plus text-slate-500">{{ $t('components.styledSelect.noMatch') }}</li>
         </ul>
       </div>
     </Teleport>

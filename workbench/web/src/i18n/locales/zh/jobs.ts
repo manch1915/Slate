@@ -1,5 +1,5 @@
 // -*- coding: utf-8 -*-
-/** 后台任务跟踪（stores/jobs.ts） */
+// Сгенерировано из мастер-словаря: zh / en / ru держим синхронно.
 export default {
   toastOk: '{label}｜已完成',
   toastErr: '{label}｜失败：{err}',

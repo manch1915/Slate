@@ -41,6 +41,7 @@ export const i18n = createI18n({
 
 /** 非组件代码（store / utils / api）里用的翻译函数 */
 export const t = i18n.global.t
+export const te = i18n.global.te
 
 export function currentLocale(): Locale {
   return i18n.global.locale.value as Locale
@@ -53,3 +54,12 @@ export function setLocale(code: Locale) {
 }
 
 document.documentElement.lang = HTML_LANG[initial]
+
+export type VocabKind = 'shotSize' | 'cameraMove' | 'angle' | 'transition'
+
+/** 受控词表（景别/运镜/角度/转场）的显示名：数据里存中文原值，界面按当前语言显示；未知值原样返回。 */
+export function vocab(kind: VocabKind, value: string | undefined | null): string {
+  const v = String(value ?? '')
+  const key = `vocab.${kind}.${v}`
+  return v && te(key) ? t(key) : v
+}

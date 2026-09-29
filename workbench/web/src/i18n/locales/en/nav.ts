@@ -1,7 +1,13 @@
 // -*- coding: utf-8 -*-
+// Сгенерировано из мастер-словаря: zh / en / ru держим синхронно.
 import type zh from '../zh/nav'
+
 export default {
-  groups: { make: 'Production', lapian: 'Breakdown', system: 'System' },
+  groups: {
+    make: 'Production',
+    lapian: 'Breakdown',
+    system: 'System'
+  },
   login: 'Sign in',
   home: 'Home',
   studio: '① Script',

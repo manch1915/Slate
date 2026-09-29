@@ -7,6 +7,7 @@ import { ref } from 'vue'
 import { deleteFile } from '../api'
 import { app, toast, loadBasics } from '../stores/app'
 import { icons } from './icons'
+import { t } from '../i18n'
 
 const props = defineProps<{ path: string; label?: string }>()
 const emit = defineEmits<{ (e: 'deleted', path: string): void }>()
@@ -14,15 +15,15 @@ const busy = ref(false)
 
 async function del() {
   if (!app.current || busy.value) return
-  if (!confirm(`确定删除「${props.label || props.path}」？删除不可恢复`)) return
+  if (!confirm(t('components.delBadge.confirm', { name: props.label || props.path }))) return
   busy.value = true
   try {
     await deleteFile(app.current, props.path)
-    toast(`已删除 ${props.label || props.path}`, 'ok')
+    toast(t('components.delBadge.deleted', { name: props.label || props.path }), 'ok')
     await loadBasics()
     emit('deleted', props.path)
   } catch (e) {
-    toast(e instanceof Error ? e.message : '删除失败', 'err')
+    toast(e instanceof Error ? e.message : t('common.deleteFailed'), 'err')
   } finally {
     busy.value = false
   }
@@ -34,7 +35,7 @@ async function del() {
     class="absolute right-1.5 top-1.5 z-10 rounded-full bg-black/70 p-1.5 text-slate-400 opacity-0 backdrop-blur transition hover:bg-rose-500/25 hover:text-rose-300 focus-visible:opacity-100 group-hover:opacity-100"
     :class="{ 'opacity-100 animate-pulse text-rose-300': busy }"
     :disabled="busy"
-    :title="`删除 ${label || path}`"
+    :title="$t('components.delBadge.title', { name: label || path })"
     @click.stop="del"
   >
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

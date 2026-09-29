@@ -1,5 +1,7 @@
 // -*- coding: utf-8 -*-
+// Сгенерировано из мастер-словаря: zh / en / ru держим синхронно.
 import type zh from '../zh/jobs'
+
 export default {
   toastOk: '{label} — готово',
   toastErr: '{label} — ошибка: {err}',

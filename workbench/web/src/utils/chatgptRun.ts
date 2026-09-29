@@ -32,10 +32,14 @@ export interface ChatGPTRunView {
   total: number
   remaining: number
   percent: number
-  progressText: string
-  batchText: string
-  phaseLabel: string
+  currentBatch: number
+  batches: number
+  /** 运行状态码（ready / generating / …），显示文案由组件按 i18n 翻译 */
+  phase: string
+  /** 服务端给出的原因（原样显示）；为空时看 reasonCode */
   actionableReason: string
+  reasonCode: '' | 'missing_refs' | 'needs_review'
+  missingRefs: string[]
   tone: 'idle' | 'running' | 'success' | 'warning' | 'danger'
 }
 
@@ -47,25 +51,8 @@ export function freezeQueuedJobIds(jobs: JobLike[], selectedIds: string[], limit
   for (const id of selectedIds) {
     if (queued.has(id) && !frozen.includes(id)) frozen.push(id)
   }
-  if (frozen.length > limit) throw new Error(`一次最多执行 ${limit} 个任务`)
+  if (frozen.length > limit) throw new Error(`At most ${limit} jobs per run`)
   return frozen
-}
-
-const PHASE_LABELS: Record<string, string> = {
-  ready: '等待领取',
-  waiting_dependencies: '等待父素材',
-  uploading: '上传参考图',
-  preparing: '素材准备轮',
-  generating: '正在绘制',
-  staged: '结果已暂存',
-  validating: '视觉复核',
-  importing: '正在导入',
-  imported: '单项已导入',
-  paused: '已暂停',
-  needs_review: '待人工复核',
-  done: '全部完成',
-  failed: '运行失败',
-  cancelled: '已取消',
 }
 
 export function toChatGPTRunView(run: ChatGPTRun): ChatGPTRunView {
@@ -80,20 +67,21 @@ export function toChatGPTRunView(run: ChatGPTRun): ChatGPTRunView {
     : ['needs_review', 'waiting_dependencies', 'paused'].includes(status) ? 'warning'
       : ['failed', 'cancelled'].includes(status) ? 'danger'
         : ['ready'].includes(status) ? 'idle' : 'running'
-  let actionableReason = String(run.pause_reason || '')
-  if (!actionableReason && status === 'waiting_dependencies') {
-    actionableReason = `缺少参考图：${run.current_attempt?.missing_refs?.join('、') || '请先生成父素材'}`
-  }
-  if (!actionableReason && status === 'needs_review') actionableReason = '结果需要人工复核后才能导入'
+  const actionableReason = String(run.pause_reason || '')
+  const reasonCode: ChatGPTRunView['reasonCode'] = actionableReason ? ''
+    : status === 'waiting_dependencies' ? 'missing_refs'
+      : status === 'needs_review' ? 'needs_review' : ''
   return {
     completed,
     total,
     remaining,
     percent,
-    progressText: `${completed}/${total} 已导入`,
-    batchText: total ? `第 ${currentBatch}/${batches} 批` : '尚无任务',
-    phaseLabel: PHASE_LABELS[status] || status,
+    currentBatch,
+    batches,
+    phase: status,
     actionableReason,
+    reasonCode,
+    missingRefs: run.current_attempt?.missing_refs || [],
     tone,
   }
 }

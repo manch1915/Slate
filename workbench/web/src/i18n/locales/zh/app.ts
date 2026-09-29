@@ -1,5 +1,5 @@
 // -*- coding: utf-8 -*-
-/** 工作台外壳：侧边栏、更新检查、Toast、标题 */
+// Сгенерировано из мастер-словаря: zh / en / ru держим синхронно.
 export default {
   brand: '场记 Slate',
   docTitle: 'AI 短片分析工作台',

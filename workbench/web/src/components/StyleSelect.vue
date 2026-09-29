@@ -9,6 +9,11 @@ import { ref, computed, watch } from 'vue'
 import { getJSON, postJSON, type SkillItem } from '../api'
 import StyledSelect from './StyledSelect.vue'
 import { app, toast } from '../stores/app'
+import { t } from '../i18n'
+
+/** 下拉里的两个伪选项（不写入 style.json）：anchor 模式的「自定义」、其余模式的「自动」 */
+const CUSTOM = '__custom__'
+const AUTO = '__auto__'
 
 const props = defineProps<{ target: 'storyboard' | 'image' | 'script' | 'acting' | 'anchor'; label: string; hint?: string }>()
 const emit = defineEmits<{ changed: [] }>()
@@ -20,12 +25,12 @@ const customText = ref('')
 
 const skills = ref<SkillItem[]>([])
 const opts = computed(() => isAnchor.value
-  ? ['自定义画风'].concat(skills.value.map((x) => x.id))
-  : ['自动'].concat(skills.value.map((x) => x.id)))
+  ? [CUSTOM].concat(skills.value.map((x) => x.id))
+  : [AUTO].concat(skills.value.map((x) => x.id)))
 const labels = computed<Record<string, string>>(() => {
   const m = Object.fromEntries(skills.value.map((s) => [s.id, `${s.name} — ${s.description.slice(0, 18)}`]))
-  if (isAnchor.value) m['自定义画风'] = '自己写一句画风描述'
-  else m['自动'] = '自动（仅知识库）'
+  if (isAnchor.value) m[CUSTOM] = t('components.styleSelect.customLabel')
+  else m[AUTO] = t('components.styleSelect.autoLabel')
   return m
 })
 
@@ -44,14 +49,14 @@ watch(() => app.current, async () => {
     const d = await getJSON<{ style?: Record<string, string> }>(`/api/script/data?project=${encodeURIComponent(app.current)}`)
     if (isAnchor.value) {
       const a = d.style?.anchor || ''
-      current.value = a || '自定义画风'
+      current.value = a || CUSTOM
       customMode.value = !!a
       customText.value = a
     } else {
       const v = (d.style?.[props.target] || '').trim()
-      current.value = v && v !== 'auto' ? v : '自动'
+      current.value = v && v !== 'auto' ? v : AUTO
     }
-  } catch { current.value = isAnchor.value ? '自定义画风' : '自动' }
+  } catch { current.value = isAnchor.value ? CUSTOM : AUTO }
 }, { immediate: true })
 
 async function persist(mutate: (style: Record<string, string>) => void) {
@@ -64,7 +69,7 @@ async function persist(mutate: (style: Record<string, string>) => void) {
     emit('changed')
     return true
   } catch (e) {
-    toast(e instanceof Error ? e.message : '保存失败', 'err')
+    toast(e instanceof Error ? e.message : t('components.styleSelect.saveFailed'), 'err')
     return false
   }
 }
@@ -73,7 +78,7 @@ async function onChange(v: string) {
   current.value = v
   if (!app.current) return
   if (isAnchor.value) {
-    if (v === '自定义画风') {
+    if (v === CUSTOM) {
       customMode.value = true
       return
     }
@@ -84,21 +89,21 @@ async function onChange(v: string) {
       st.anchor = customText.value
       st.image = v
     })
-    if (saved) toast(`画风锚定：${customText.value}`, 'ok', 2500)
+    if (saved) toast(t('components.styleSelect.anchored', { text: customText.value }), 'ok', 2500)
     return
   }
   const saved = await persist((style) => {
     // E10：「自动」写成显式 "auto"——删键会被默认填入当成"未选择"重新解析
-    style[props.target] = v === '自动' ? 'auto' : v
+    style[props.target] = v === AUTO ? 'auto' : v
   })
-  if (saved) toast(`${props.label}：${v === '自动' ? '自动（仅知识库）' : v}`, 'ok', 2500)
+  if (saved) toast(t('components.styleSelect.changed', { label: props.label, value: v === AUTO ? t('components.styleSelect.autoLabel') : v }), 'ok', 2500)
 }
 
 async function saveCustom() {
-  const t = customText.value.trim()
-  if (!t) { toast('请填写画风描述', 'err'); return }
-  const saved = await persist((st) => { st.anchor = t })
-  if (saved) toast(`画风锚定已保存：${t}`, 'ok', 3000)
+  const text = customText.value.trim()
+  if (!text) { toast(t('components.styleSelect.needText'), 'err'); return }
+  const saved = await persist((st) => { st.anchor = text })
+  if (saved) toast(t('components.styleSelect.anchorSaved', { text }), 'ok', 3000)
 }
 </script>
 
@@ -111,8 +116,8 @@ async function saveCustom() {
     </label>
     <div v-if="isAnchor && customMode" class="mt-1.5">
       <textarea v-model="customText" rows="2" class="input w-full text-xs leading-relaxed"
-        placeholder="一句话默认画风，如：日式动漫赛璐璐风格，柔和色彩，干净描线（显式选择生图风格时以该选择为准）"></textarea>
-      <button class="btn btn-ghost btn-sm mt-1" @click="saveCustom">保存锚定</button>
+        :placeholder="$t('components.styleSelect.placeholder')"></textarea>
+      <button class="btn btn-ghost btn-sm mt-1" @click="saveCustom">{{ $t('components.styleSelect.saveAnchor') }}</button>
     </div>
   </div>
 </template>

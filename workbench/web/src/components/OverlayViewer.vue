@@ -44,18 +44,18 @@ watch(() => props.visible, (v) => {
     <div v-if="visible" class="overlay z-[90]" @click.self="emit('close')">
       <!-- 顶栏悬浮，不挤占内容空间：图片在视口正中 -->
       <div class="absolute inset-x-0 top-0 z-10 flex items-center gap-3 px-4 py-2.5 text-xs text-slate-200">
-        <span class="truncate font-bold">{{ title || (carousel ? (n + 1) + ' / ' + count : '预览') }}</span>
+        <span class="truncate font-bold">{{ title || (carousel ? (n + 1) + ' / ' + count : $t('components.overlay.preview')) }}</span>
         <span class="flex-1"></span>
         <a v-if="download" :href="cur" :download="download"
-          class="rounded-lg bg-white/10 px-3 py-1 font-bold text-slate-100 hover:bg-white/20">下载</a>
-        <button class="rounded-lg bg-white/10 px-3 py-1 font-bold text-slate-100 hover:bg-white/20" @click="emit('close')">关闭 ✕</button>
+          class="rounded-lg bg-white/10 px-3 py-1 font-bold text-slate-100 hover:bg-white/20">{{ $t('components.overlay.download') }}</a>
+        <button class="rounded-lg bg-white/10 px-3 py-1 font-bold text-slate-100 hover:bg-white/20" @click="emit('close')">{{ $t('components.overlay.close') }}</button>
       </div>
       <div class="flex h-full items-center justify-center p-10" @click.self="emit('close')">
-        <button v-if="carousel && count > 1" class="absolute left-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-white/10 px-3 py-4 font-bold text-slate-100 hover:bg-white/20" aria-label="上一张" @click.stop="prev">‹</button>
-        <img v-if="kind === 'image'" :src="cur" class="max-h-full max-w-full rounded-lg object-contain shadow-2xl" alt="预览" />
+        <button v-if="carousel && count > 1" class="absolute left-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-white/10 px-3 py-4 font-bold text-slate-100 hover:bg-white/20" :aria-label="$t('components.overlay.prev')" @click.stop="prev">‹</button>
+        <img v-if="kind === 'image'" :src="cur" class="max-h-full max-w-full rounded-lg object-contain shadow-2xl" :alt="$t('components.overlay.preview')" />
         <video v-else-if="kind === 'video'" :src="cur" controls autoplay class="max-h-full max-w-full rounded-lg"></video>
-        <iframe v-else :src="cur" class="h-full w-full rounded-lg border border-line bg-white" title="内嵌预览"></iframe>
-        <button v-if="carousel && count > 1" class="absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-white/10 px-3 py-4 font-bold text-slate-100 hover:bg-white/20" aria-label="下一张" @click.stop="next">›</button>
+        <iframe v-else :src="cur" class="h-full w-full rounded-lg border border-line bg-white" :title="$t('components.overlay.embedded')"></iframe>
+        <button v-if="carousel && count > 1" class="absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-white/10 px-3 py-4 font-bold text-slate-100 hover:bg-white/20" :aria-label="$t('components.overlay.next')" @click.stop="next">›</button>
         <div v-if="carousel && count > 1" class="absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-white/10 px-3 py-1 text-xs text-slate-300">{{ n + 1 }} / {{ count }}</div>
       </div>
     </div>

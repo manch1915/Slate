@@ -4,6 +4,7 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { mediaUrl, deleteVersion, fetchVersions, restoreVersion, type FileVersion } from '../api'
 import { toast } from '../stores/app'
+import { t } from '../i18n'
 import OverlayViewer from './OverlayViewer.vue'
 import StoryboardGrid from './StoryboardGrid.vue'
 
@@ -65,22 +66,22 @@ onMounted(() => document.addEventListener('pointerdown', closeOnOutside))
 onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOnOutside))
 
 async function removeVer(v: Ver) {
-  if (!confirm('删除这条历史版本？（不可恢复；当前文件不受影响）')) return
+  if (!confirm(t('components.versions.deleteConfirm'))) return
   try {
     await deleteVersion(props.path, v.ts)
     await load()
-    toast('已删除该版本', 'ok')
-  } catch (e) { toast(e instanceof Error ? e.message : '删除失败', 'err') }
+    toast(t('components.versions.deleted'), 'ok')
+  } catch (e) { toast(e instanceof Error ? e.message : t('common.deleteFailed'), 'err') }
 }
 async function restore(v: Ver) {
-  if (!confirm(`回滚到 ${v.ts}？（当前版本会先自动快照，不会丢失）`)) return
+  if (!confirm(t('components.versions.restoreConfirm', { ts: v.ts }))) return
   try {
     await restoreVersion(props.path, v.ts)
-    toast('已回滚', 'ok')
+    toast(t('components.versions.restored'), 'ok')
     await load()
     open.value = false
     emit('restored')
-  } catch (e) { toast(e instanceof Error ? e.message : '回滚失败', 'err') }
+  } catch (e) { toast(e instanceof Error ? e.message : t('components.versions.restoreFailed'), 'err') }
 }
 const extKind = (rel: string): 'image' | 'video' | 'html' | null => {
   if (/\.(png|jpe?g|webp|gif|bmp)$/i.test(rel)) return 'image'
@@ -110,7 +111,7 @@ async function openDocPreview(v: Ver) {
     } catch { /* 非 JSON：纯文本原样展示 */ }
     docPreview.value = { title: v.rel.split('/').pop() || v.rel, shots, text: shots ? undefined : text }
   } catch (e) {
-    toast(e instanceof Error ? e.message : '预览加载失败', 'err')
+    toast(e instanceof Error ? e.message : t('components.versions.previewFailed'), 'err')
   } finally {
     docLoading.value = false
   }
@@ -122,25 +123,25 @@ const fmt = (ts: string) => { const m = ts.match(/^(\d{4})(\d{2})(\d{2})_(\d{2})
 <template>
   <div ref="root" class="relative inline-block">
     <button class="rounded-full bg-white/10 px-2 py-0.5 text-2xs font-bold text-slate-300 transition hover:bg-white/20"
-      :title="`历史版本 ${count} 份`" @click.stop="open = !open; load()">
-      ◂ 版本 {{ count }}
+      :title="$t('components.versions.countTitle', { n: count })" @click.stop="open = !open; load()">
+      {{ $t('components.versions.button', { n: count }) }}
     </button>
     <Teleport to="body">
       <div v-if="open" ref="panel" :style="panelStyle" class="max-h-72 w-64 overflow-y-auto rounded-lg border border-line bg-slate-950/95 p-2 shadow-xl"
         @click.stop>
-        <div v-if="loading" class="py-2 text-center text-2xs text-slate-500">加载…</div>
+        <div v-if="loading" class="py-2 text-center text-2xs text-slate-500">{{ $t('components.versions.loading') }}</div>
         <div v-for="v in vers" :key="v.rel" class="mb-1 flex items-center gap-2 rounded p-1 hover:bg-white/5">
-          <button v-if="kind === 'image'" class="shrink-0 overflow-hidden rounded" title="点击查看大图" @click.stop="showPreview(v)"><img :src="mediaUrl(v.rel)" class="h-10 w-16 rounded object-cover" alt="版本" loading="lazy" /></button>
+          <button v-if="kind === 'image'" class="shrink-0 overflow-hidden rounded" :title="$t('components.versions.zoomTitle')" @click.stop="showPreview(v)"><img :src="mediaUrl(v.rel)" class="h-10 w-16 rounded object-cover" :alt="$t('components.versions.alt')" loading="lazy" /></button>
           <div class="min-w-0 flex-1">
             <div class="text-xs-plus" :class="v.current ? 'font-bold text-emerald-300' : 'text-slate-300'">
-              {{ v.current ? '最新' : fmt(v.ts) }}
+              {{ v.current ? $t('components.versions.latest') : fmt(v.ts) }}
             </div>
           </div>
-          <button class="text-2xs text-sky-300 hover:underline" @click.stop="showPreview(v)">打开</button>
-          <button v-if="!v.current" class="text-2xs text-amber-300 hover:underline" @click.stop="restore(v)">恢复</button>
-          <button v-if="!v.current" class="text-2xs text-rose-300 hover:underline" @click.stop="removeVer(v)">删除</button>
+          <button class="text-2xs text-sky-300 hover:underline" @click.stop="showPreview(v)">{{ $t('components.versions.open') }}</button>
+          <button v-if="!v.current" class="text-2xs text-amber-300 hover:underline" @click.stop="restore(v)">{{ $t('components.versions.restore') }}</button>
+          <button v-if="!v.current" class="text-2xs text-rose-300 hover:underline" @click.stop="removeVer(v)">{{ $t('components.versions.delete') }}</button>
         </div>
-        <div v-if="!vers.length" class="py-2 text-center text-2xs text-slate-500">暂无历史版本</div>
+        <div v-if="!vers.length" class="py-2 text-center text-2xs text-slate-500">{{ $t('components.versions.empty') }}</div>
       </div>
     </Teleport>
     <OverlayViewer :visible="!!preview" :src="preview ? mediaUrl(preview.rel) : ''" :kind="preview?.kind" :title="preview ? preview.rel.split('/').pop() : ''" @close="closePreview" />
@@ -148,12 +149,12 @@ const fmt = (ts: string) => { const m = ts.match(/^(\d{4})(\d{2})(\d{2})_(\d{2})
       <div v-if="docPreview || docLoading" class="overlay z-[75] p-6" @click.self="docPreview = null">
         <div class="modal-h flex w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-line bg-slate-950/95 shadow-2xl" @click.stop>
           <div class="flex items-center gap-3 border-b border-line px-4 py-2.5">
-            <span class="truncate text-sm font-bold text-slate-200">{{ docPreview?.title || '加载中…' }}</span>
-            <span v-if="docPreview?.shots" class="shrink-0 text-xs-plus text-slate-500">{{ docPreview.shots.length }} 镜 · 只读预览</span>
-            <button class="btn btn-ghost btn-sm ml-auto shrink-0" @click="docPreview = null">关闭</button>
+            <span class="truncate text-sm font-bold text-slate-200">{{ docPreview?.title || $t('components.versions.loadingDoc') }}</span>
+            <span v-if="docPreview?.shots" class="shrink-0 text-xs-plus text-slate-500">{{ $t('components.versions.shotsReadonly', { n: docPreview.shots.length }) }}</span>
+            <button class="btn btn-ghost btn-sm ml-auto shrink-0" @click="docPreview = null">{{ $t('components.versions.close') }}</button>
           </div>
           <div class="min-h-0 flex-1 overflow-auto p-4">
-            <div v-if="docLoading" class="py-10 text-center text-xs text-slate-500">加载版本内容…</div>
+            <div v-if="docLoading" class="py-10 text-center text-xs text-slate-500">{{ $t('components.versions.loadingContent') }}</div>
             <StoryboardGrid v-else-if="docPreview?.shots" :shots="docPreview.shots" />
             <pre v-else class="whitespace-pre-wrap break-all text-xs-plus leading-relaxed text-slate-300">{{ docPreview?.text }}</pre>
           </div>

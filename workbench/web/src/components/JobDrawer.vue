@@ -5,6 +5,7 @@ import { ref, computed, watch, nextTick, onBeforeUnmount } from 'vue'
 import { jobs, logTail, runningCount, type TrackedJob } from '../stores/jobs'
 import { fmtClock, fetchJobs, fetchJob, clearFinishedJobs, type JobSummary, type JobInfo } from '../api'
 import { icons } from './icons'
+import { t, te } from '../i18n'
 
 const open = ref(false)
 const tab = ref<'cur' | 'his'>('cur')
@@ -31,7 +32,7 @@ const clearing = ref(false)
 async function clearFinished() {
   const done = history.value.filter((h) => h.status !== 'running').length
   if (!done || clearing.value) return
-  if (!window.confirm(`清空 ${done} 条已结束的历史任务记录？运行中的任务会保留。`)) return
+  if (!window.confirm(t('components.jobDrawer.clearConfirm', { n: done }))) return
   clearing.value = true
   try {
     await clearFinishedJobs()
@@ -91,11 +92,8 @@ function fmtTs(epoch?: number): string {
   return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
-const STEP_LABELS: Record<string, string> = {
-  depth: '深度图', silhouette: '剪影', explain: '镜头讲解', lines: '台词', analysis: '拉片解构',
-  analysis_ai: 'AI 解构', frames: '逐帧提取', create: '模拟创作', whiterange: '白模区间', render: '白模渲染'
-}
-const stepLabel = (s?: string) => (s && STEP_LABELS[s]) || s || '任务'
+const stepLabel = (s?: string) =>
+  (s && te('components.jobDrawer.step.' + s) ? t('components.jobDrawer.step.' + s) : s) || t('components.jobDrawer.job')
 
 const dotColor = (s: string, ok?: boolean) =>
   s === 'running' ? '#34d399' : ok === false || s === 'error' || s === 'failed' ? '#f87171' : '#38bdf8'
@@ -166,9 +164,9 @@ watch(jobRows, () => {
         <div class="flex items-center justify-between border-b border-line px-4 py-2.5">
           <div class="flex items-center gap-2 text-sm font-bold text-slate-200">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2"><path :d="icons.terminal" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            后台任务
+            {{ $t('components.jobDrawer.title') }}
             <span v-if="hasRunning" class="ml-1 rounded-full bg-emerald-400/15 px-2 py-0.5 text-2xs font-semibold text-emerald-300">
-              {{ runningCount() }} 个运行中
+              {{ $t('components.jobDrawer.running', { n: runningCount() }) }}
             </span>
           </div>
           <div class="flex items-center gap-1">
@@ -176,19 +174,19 @@ watch(jobRows, () => {
               class="rounded-md px-2 py-0.5 text-xs-plus transition"
               :class="tab === 'cur' ? 'chip-active' : 'chip'"
               @click="tab = 'cur'"
-            >当前</button>
+            >{{ $t('components.jobDrawer.tabCurrent') }}</button>
             <button
               class="rounded-md px-2 py-0.5 text-xs-plus transition"
               :class="tab === 'his' ? 'chip-active' : 'chip'"
               @click="tab = 'his'"
-            >历史</button>
+            >{{ $t('components.jobDrawer.tabHistory') }}</button>
             <button class="ml-1 text-slate-500 hover:text-slate-300" @click="open = false">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.close" stroke-linecap="round"/></svg>
             </button>
           </div>
         </div>
         <div v-if="tab === 'cur'" class="flex-1 overflow-y-auto p-3">
-          <p v-if="!jobs.length" class="py-10 text-center text-sm text-slate-500">暂无后台任务</p>
+          <p v-if="!jobs.length" class="py-10 text-center text-sm text-slate-500">{{ $t('components.jobDrawer.empty') }}</p>
           <div
             v-for="{ j, p } in jobRows"
             :key="j.trackId"
@@ -213,7 +211,7 @@ watch(jobRows, () => {
                 ></div>
               </div>
               <div class="mt-0.5 text-right text-2xs tabular-nums text-cyan-300/80">
-                {{ Math.round(p.pct) }}% · {{ p.done }}/{{ p.total }} 帧
+                {{ $t('components.jobDrawer.frames', { pct: Math.round(p.pct), done: p.done, total: p.total }) }}
               </div>
             </div>
             <pre
@@ -226,7 +224,7 @@ watch(jobRows, () => {
               v-if="(j.out || '').trim()"
               class="mt-0.5 text-2xs text-cyan-300/60 transition hover:text-cyan-200"
               @click="toggleExpand(j.trackId)"
-            >{{ expanded.has(j.trackId) ? '▲ 收起日志' : '▼ 完整日志' }}</button>
+            >{{ expanded.has(j.trackId) ? $t('components.jobDrawer.collapse') : $t('components.jobDrawer.expand') }}</button>
             <pre
               v-if="j.err"
               class="log-tail mt-1 overflow-auto rounded bg-red-950/40 p-1.5"
@@ -234,7 +232,7 @@ watch(jobRows, () => {
               style="color:#fca5a5"
             >{{ expanded.has(j.trackId) ? j.err.trim() : j.err.split('\n').slice(-5).join('\n') }}</pre>
             <div v-if="j.status !== 'running'" class="mt-1 text-2xs" :style="{ color: dotColor(j.status, j.success ?? j.ok) }">
-              {{ (j.success ?? j.ok) ? '✓ 完成' : '✗ 失败' }}（{{ fmtClock(j.liveElapsed) }}）
+              {{ (j.success ?? j.ok) ? $t('components.jobDrawer.ok', { time: fmtClock(j.liveElapsed) }) : $t('components.jobDrawer.fail', { time: fmtClock(j.liveElapsed) }) }}
             </div>
           </div>
         </div>
@@ -242,17 +240,17 @@ watch(jobRows, () => {
         <!-- 历史任务：磁盘落盘记录，跨会话/重启可查，点击展开完整日志 -->
         <div v-else class="flex-1 overflow-y-auto p-3">
           <div class="mb-2 flex items-center justify-between">
-            <span class="text-2xs text-slate-500">最近 {{ history.length }} 条（含重启前）· 每 5s 自动刷新</span>
+            <span class="text-2xs text-slate-500">{{ $t('components.jobDrawer.recent', { n: history.length }) }}</span>
             <button
               class="btn-danger transition"
               :class="{ 'opacity-40': clearing }"
-              title="清空已完成（运行中的保留）"
+              :title="$t('components.jobDrawer.clearTitle')"
               @click="clearFinished"
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.trash" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
           </div>
-          <p v-if="!history.length && !hisLoading" class="py-10 text-center text-sm text-slate-500">暂无历史任务</p>
+          <p v-if="!history.length && !hisLoading" class="py-10 text-center text-sm text-slate-500">{{ $t('components.jobDrawer.noHistory') }}</p>
           <div
             v-for="h in history"
             :key="h.id"
@@ -269,16 +267,16 @@ watch(jobRows, () => {
               <span class="flex-1"></span>
               <span v-if="h.elapsed" class="tabular-nums text-2xs text-slate-500">{{ fmtClock(h.elapsed) }}</span>
               <span class="text-2xs" :style="{ color: dotColor(h.status || '', h.ok) }">
-                {{ h.status === 'running' ? '运行中' : h.status === 'interrupted' ? '已中断' : h.ok ? '✓' : '✗' }}
+                {{ h.status === 'running' ? $t('components.jobDrawer.statusRunning') : h.status === 'interrupted' ? $t('components.jobDrawer.statusInterrupted') : h.ok ? '✓' : '✗' }}
               </span>
             </button>
             <div v-if="hisDetail[h.id]" class="mt-1.5">
-              <p v-if="hisDetail[h.id] === 'loading'" class="py-2 text-center text-2xs text-slate-500">加载日志…</p>
-              <p v-else-if="hisDetail[h.id] === 'error'" class="py-2 text-center text-2xs text-red-400">日志读取失败</p>
+              <p v-if="hisDetail[h.id] === 'loading'" class="py-2 text-center text-2xs text-slate-500">{{ $t('components.jobDrawer.loadingLog') }}</p>
+              <p v-else-if="hisDetail[h.id] === 'error'" class="py-2 text-center text-2xs text-red-400">{{ $t('components.jobDrawer.logFailed') }}</p>
               <template v-else>
                 <pre v-if="(hisDetail[h.id] as JobInfo).out" class="log-tail max-h-56 overflow-auto whitespace-pre-wrap rounded bg-black/40 p-1.5">{{ (hisDetail[h.id] as JobInfo).out.trim() }}</pre>
                 <pre v-if="(hisDetail[h.id] as JobInfo).err" class="log-tail mt-1 max-h-32 overflow-auto whitespace-pre-wrap rounded bg-red-950/40 p-1.5" style="color:#fca5a5">{{ (hisDetail[h.id] as JobInfo).err.trim() }}</pre>
-                <p v-if="!(hisDetail[h.id] as JobInfo).out && !(hisDetail[h.id] as JobInfo).err" class="py-1 text-center text-2xs text-slate-500">（无日志）</p>
+                <p v-if="!(hisDetail[h.id] as JobInfo).out && !(hisDetail[h.id] as JobInfo).err" class="py-1 text-center text-2xs text-slate-500">{{ $t('components.jobDrawer.noLog') }}</p>
               </template>
             </div>
           </div>
@@ -292,7 +290,7 @@ watch(jobRows, () => {
       @click="open = !open"
     >
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.terminal" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      任务
+      {{ $t('components.jobDrawer.button') }}
       <span
         v-if="hasRunning"
         class="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-400 text-2xs font-bold text-emerald-950"
