@@ -8,5 +8,7 @@ export default {
   uploadFailed: 'Не удалось загрузить',
   uploading: 'Загрузка…',
   listSep: ', ',
-  semiSep: '; '
+  semiSep: '; ',
+  cancel: 'Отмена',
+  close: 'Закрыть'
 } satisfies typeof zh

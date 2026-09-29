@@ -5,6 +5,7 @@ import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { fetchAuthStatus, authSetup, authLogin, markAuthed } from '../api'
 import { startJobDiscovery } from '../stores/jobs'
+import { t } from '../i18n'
 
 const route = useRoute(), router = useRouter()
 const configured = ref(true), password = ref(''), confirm = ref('')
@@ -23,7 +24,7 @@ onMounted(async () => {
 
 async function submit() {
   error.value = ''
-  if (isSetup.value && password.value !== confirm.value) { error.value = '两次输入不一致'; return }
+  if (isSetup.value && password.value !== confirm.value) { error.value = t('views.login.mismatch'); return }
   busy.value = true
   try {
     if (isSetup.value) await authSetup(password.value)
@@ -32,7 +33,7 @@ async function submit() {
     startJobDiscovery()
     router.replace('/')
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '操作失败'
+    error.value = e instanceof Error ? e.message : t('views.login.failed')
   } finally { busy.value = false }
 }
 </script>
@@ -41,19 +42,19 @@ async function submit() {
   <div class="flex min-h-screen items-center justify-center bg-[#0b111c] px-4">
     <div class="w-full max-w-sm">
       <div class="mb-6 text-center">
-        <div class="grad-text text-2xl font-black tracking-widest">场记 Slate</div>
-        <p class="mt-2 text-xs text-slate-500">{{ isSetup ? '首次使用：设置管理员口令（第一个设置的人即管理员）' : '输入口令进入工作台' }}</p>
+        <div class="grad-text text-2xl font-black tracking-widest">{{ $t('app.brand') }}</div>
+        <p class="mt-2 text-xs text-slate-500">{{ isSetup ? $t('views.login.setupHint') : $t('views.login.loginHint') }}</p>
       </div>
       <form class="glass space-y-4 p-6" @submit.prevent="submit">
-        <label class="block text-xs text-slate-400">口令
-          <input v-model="password" type="password" class="input mt-1" autofocus placeholder="至少 6 位" required />
+        <label class="block text-xs text-slate-400">{{ $t('views.login.password') }}
+          <input v-model="password" type="password" class="input mt-1" autofocus :placeholder="$t('views.login.minLen')" required />
         </label>
-        <label v-if="isSetup" class="block text-xs text-slate-400">确认口令
+        <label v-if="isSetup" class="block text-xs text-slate-400">{{ $t('views.login.confirm') }}
           <input v-model="confirm" type="password" class="input mt-1" required />
         </label>
         <p v-if="error" class="rounded-lg bg-rose-400/10 px-3 py-2 text-xs text-rose-300">{{ error }}</p>
-        <button class="btn w-full" :disabled="busy || !password">{{ busy ? '处理中…' : isSetup ? '设置并进入' : '进入工作台' }}</button>
-        <p class="text-center text-[10px] leading-relaxed text-slate-600">口令以 scrypt 加盐存储在本机 auth.json；会话 30 天有效。</p>
+        <button class="btn w-full" :disabled="busy || !password">{{ busy ? $t('views.login.busy') : isSetup ? $t('views.login.setupBtn') : $t('views.login.loginBtn') }}</button>
+        <p class="text-center text-[10px] leading-relaxed text-slate-600">{{ $t('views.login.storage') }}</p>
       </form>
     </div>
   </div>

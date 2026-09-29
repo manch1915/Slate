@@ -8,5 +8,7 @@ export default {
   uploadFailed: 'Upload failed',
   uploading: 'Uploading…',
   listSep: ', ',
-  semiSep: '; '
+  semiSep: '; ',
+  cancel: 'Cancel',
+  close: 'Close'
 } satisfies typeof zh

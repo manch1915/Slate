@@ -6,5 +6,7 @@ export default {
   uploadFailed: '上传失败',
   uploading: '上传中…',
   listSep: '、',
-  semiSep: '；'
+  semiSep: '；',
+  cancel: '取消',
+  close: '关闭'
 }
