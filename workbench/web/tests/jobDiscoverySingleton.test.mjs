@@ -13,7 +13,7 @@ function load({ guest = () => false } = {}) {
   const source = fs.readFileSync(new URL('../src/stores/jobs.ts', import.meta.url), 'utf8').replace(/^import .*$/mg, '')
   const js = ts.transpile(helpers + source, { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS })
   const context = {
-    exports: {}, reactive: x => x, toast: () => {},
+    exports: {}, reactive: x => x, t: (k) => k, toast: () => {},
     fetchJob: async id => ({ id, status: 'running' }),
     fetchJobs: async () => ({ jobs: [] }),
     authReady: Promise.resolve(true), isGuest: guest,

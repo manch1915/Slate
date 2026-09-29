@@ -3,6 +3,7 @@
 import { reactive } from 'vue'
 import { authReady, fetchJob, fetchJobs, isGuest, jobDone, jobOk, type JobInfo } from '../api'
 import { toast } from './app'
+import { t } from '../i18n'
 
 export interface TrackedJob extends JobInfo {
   trackId: number
@@ -100,7 +101,7 @@ export function trackJob(id: number, label: string): Promise<TrackedJob> {
       inflightRemove(id)
       const j = finalJob()
       j.success = jobOk(j)
-      toast(`${label}｜${j.success ? '已完成' : '失败'}${!j.success ? '：' + (j.err || '请查看任务日志') : ''}`,
+      toast(j.success ? t('jobs.toastOk', { label }) : t('jobs.toastErr', { label, err: j.err || t('jobs.seeLog') }),
         j.success ? 'ok' : 'err', j.success ? 6000 : 12000)
       fireJobDone(j)
       resolve(j)
@@ -110,7 +111,7 @@ export function trackJob(id: number, label: string): Promise<TrackedJob> {
       jobs.find((x) => x.trackId === trackId) ||
       ({
         trackId, id, label, status: 'error', ok: false,
-        out: tj.out, err: tj.err || '任务记录已被挤出列表',
+        out: tj.out, err: tj.err || t('jobs.evicted'),
         startedAt: tj.startedAt, liveElapsed: (Date.now() - tj.startedAt) / 1000,
         success: false
       } as TrackedJob)
@@ -123,7 +124,7 @@ export function trackJob(id: number, label: string): Promise<TrackedJob> {
         pollState.delete(trackId)
       } catch (e) {
         if ((e as { status?: number })?.status === 401) {
-          upsert(trackId, { status: 'error', ok: false, err: '需要登录；登录后任务需重新发起' })
+          upsert(trackId, { status: 'error', ok: false, err: t('jobs.needLogin') })
           timers.delete(trackId)
           finish()
           return
@@ -133,20 +134,20 @@ export function trackJob(id: number, label: string): Promise<TrackedJob> {
         st.delay = Math.min(st.delay * 2, 30000)
         pollState.set(trackId, st)
         // 原地更新同一行，不逐次追加
-        upsert(trackId, { out: (st.base ? st.base + '\n' : '') + `…轮询失败 ×${st.fails}，重试中` })
+        upsert(trackId, { out: (st.base ? st.base + '\n' : '') + t('jobs.pollRetry', { n: st.fails }) })
         timers.set(trackId, window.setTimeout(tick, st.delay))
         return
       }
       // 服务重启后任务记录丢失：后端返回 {err:"无此任务", lost:true}（无 status 字段）
       if (!j.status) {
-        upsert(trackId, { status: 'error', ok: false, err: '任务记录丢失（服务可能已重启），请到对应页面确认产物是否已生成' })
+        upsert(trackId, { status: 'error', ok: false, err: t('jobs.lost') })
         timers.delete(trackId)
         finish()
         return
       }
       // 重启后恢复的历史任务：running 被标记为 interrupted（进程已随服务被杀）
       if (j.status === 'interrupted') {
-        upsert(trackId, { status: 'error', ok: false, err: (j.err || '') + '（服务重启导致中断，请重新运行）', out: j.out || tj.out })
+        upsert(trackId, { status: 'error', ok: false, err: (j.err || '') + t('jobs.interrupted'), out: j.out || tj.out })
         timers.delete(trackId)
         finish()
         return
@@ -184,7 +185,7 @@ async function discoverJobs() {
   try {
     for (const job of (await fetchJobs()).jobs) {
       if (!tracked.has(job.id) && (job.status === 'running' || job.status === 'queued' || (job.finished_at || 0) >= openedAt)) {
-        void trackJob(job.id, job.step || `任务 #${job.id}`)
+        void trackJob(job.id, job.step || t('jobs.fallbackLabel', { id: job.id }))
       }
     }
   } catch { /* 短暂离线不判任务失败，恢复后继续接管。 */ }
@@ -205,6 +206,6 @@ void authReady.then((authed) => { if (authed) startJobDiscovery() })
 /** 日志尾部若干行。 */
 export function logTail(j: TrackedJob, n = 10): string {
   const s = (j.out || '').trim()
-  if (!s) return j.status === 'running' ? '启动中…' : ''
+  if (!s) return j.status === 'running' ? t('jobs.starting') : ''
   return s.split('\n').slice(-n).join('\n')
 }

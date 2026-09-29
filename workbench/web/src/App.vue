@@ -2,6 +2,9 @@
 // -*- coding: utf-8 -*-
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
+import { LOCALES, setLocale, type Locale } from './i18n'
+import { applyDocTitle } from './router'
 import ParticleBg from './components/ParticleBg.vue'
 import JobDrawer from './components/JobDrawer.vue'
 import { icons } from './components/icons'
@@ -9,6 +12,8 @@ import { loadBasics, app, toasts, selectProject, currentProject, toast } from '.
 import { fetchAuthStatus, authLogout, checkUpdate, applyUpdate, rollbackUpdate, restartServer, authReady, isGuest, type UpdateCheck } from './api'
 
 const route = useRoute()
+const { t, locale } = useI18n()
+watch(locale, () => applyDocTitle())
 const router = useRouter()
 /* 登录页不渲染工作台外壳（N85） */
 const showShell = computed(() => route.path !== '/login')
@@ -30,25 +35,25 @@ async function doUpdate() {
   updateBusy.value = true
   try {
     const r = await applyUpdate()
-    if (!r.updated) { toast(r.note || '已是最新', 'info'); return }
+    if (!r.updated) { toast(r.note || t('app.update.upToDate'), 'info'); return }
     // F06：含前端源码改动时先提示手动重建 dist（dist 不入库），由用户决定何时重启
     if (r.needs_build) {
-      toast('更新完成，但含前端源码改动：请先在仓库根执行 npm ci && npm run build，再重启生效', 'err', 12000)
+      toast(t('app.update.needsBuild'), 'err', 12000)
       return
     }
-    toast('更新完成，进程即将退出：keepalive 守护下会自动拉起新版本，否则请手动重启', 'ok', 6000)
+    toast(t('app.update.restarting'), 'ok', 6000)
     setTimeout(() => void restartServer(), 800)
-  } catch (e) { toast(e instanceof Error ? e.message : '更新失败', 'err', 6000) }
+  } catch (e) { toast(e instanceof Error ? e.message : t('app.update.failed'), 'err', 6000) }
   finally { updateBusy.value = false }
 }
 async function doRollback() {
-  if (!confirm('回滚到上次更新前的版本？（当前工作区需干净）')) return
+  if (!confirm(t('app.update.rollbackConfirm'))) return
   updateBusy.value = true
   try {
     const r = await rollbackUpdate()
-    toast('已回滚到 ' + r.rolled_back_to + '，进程即将退出：keepalive 守护下会自动拉起，否则请手动重启', 'ok', 6000)
+    toast(t('app.update.rolledBack', { ref: r.rolled_back_to }), 'ok', 6000)
     setTimeout(() => void restartServer(), 800)
-  } catch (e) { toast(e instanceof Error ? e.message : '回滚失败', 'err', 6000) }
+  } catch (e) { toast(e instanceof Error ? e.message : t('app.update.rollbackFailed'), 'err', 6000) }
   finally { updateBusy.value = false }
 }
 async function doLogout() {
@@ -73,25 +78,25 @@ const theme = computed(() => ({
 }))
 
 const navItems = [
-  { key: 'home', to: '/', label: '首页', icon: 'home', group: '' },
-  { key: 'studio', to: '/studio', label: '① 剧本生成', icon: 'chat', group: '制作' },
-  { key: 'studioAsset', to: '/studio/asset', label: '② 素材生成', icon: 'box3d', group: '制作' },
-  { key: 'studioShots', to: '/studio/shots', label: '③ 分镜生成', icon: 'clapper', group: '制作' },
-  { key: 'voices', to: '/studio/asset/voices', label: '④ 音色绑定', icon: 'wave', group: '制作' },
-  { key: 'acting', to: '/acting', label: '⑤ 演员表现', icon: 'user', group: '制作' },
-  { key: 'package', to: '/package', label: '⑥ 平面推演', icon: 'box3d', group: '制作' },
-  { key: 'create', to: '/create', label: '⑦ 创作生成', icon: 'wand', group: '制作' },
-  { key: 'free', to: '/create/free', label: '⑧ 自由创作', icon: 'wand', group: '制作' },
-  { key: 'lapian', to: '/lapian', label: '① 拉片结构', icon: 'clapper', group: '拉片' },
-  { key: 'lines', to: '/lines', label: '② 台词分析', icon: 'chat', group: '拉片' },
-  { key: 'frames', to: '/frames', label: '③ 逐帧拉片', icon: 'frames', group: '拉片' },
-  { key: 'depth', to: '/depth', label: '④ 深度动作', icon: 'wave', group: '拉片' },
-  { key: 'explain', to: '/explain', label: '⑤ 镜头讲解', icon: 'book', group: '拉片' },
-  { key: 'white', to: '/white', label: '① 辅助·白模', icon: 'cube', group: '系统' },
-  { key: 'white3d', to: '/white3d', label: '② 辅助·Blender', icon: 'box3d', group: '系统' },
-  { key: 'skills', to: '/skills', label: '③ Skill 配置', icon: 'book', group: '系统' },
-  { key: 'env', to: '/env', label: '④ 环境检查', icon: 'server', group: '系统' },
-  { key: 'billing', to: '/billing', label: '⑤ 用量计费', icon: 'chart', group: '系统' }
+  { key: 'home', to: '/', icon: 'home', group: '' },
+  { key: 'studio', to: '/studio', icon: 'chat', group: 'make' },
+  { key: 'studioAsset', to: '/studio/asset', icon: 'box3d', group: 'make' },
+  { key: 'studioShots', to: '/studio/shots', icon: 'clapper', group: 'make' },
+  { key: 'voices', to: '/studio/asset/voices', icon: 'wave', group: 'make' },
+  { key: 'acting', to: '/acting', icon: 'user', group: 'make' },
+  { key: 'package', to: '/package', icon: 'box3d', group: 'make' },
+  { key: 'create', to: '/create', icon: 'wand', group: 'make' },
+  { key: 'free', to: '/create/free', icon: 'wand', group: 'make' },
+  { key: 'lapian', to: '/lapian', icon: 'clapper', group: 'lapian' },
+  { key: 'lines', to: '/lines', icon: 'chat', group: 'lapian' },
+  { key: 'frames', to: '/frames', icon: 'frames', group: 'lapian' },
+  { key: 'depth', to: '/depth', icon: 'wave', group: 'lapian' },
+  { key: 'explain', to: '/explain', icon: 'book', group: 'lapian' },
+  { key: 'white', to: '/white', icon: 'cube', group: 'system' },
+  { key: 'white3d', to: '/white3d', icon: 'box3d', group: 'system' },
+  { key: 'skills', to: '/skills', icon: 'book', group: 'system' },
+  { key: 'env', to: '/env', icon: 'server', group: 'system' },
+  { key: 'billing', to: '/billing', icon: 'chart', group: 'system' }
 ]
 
 watch(
@@ -119,7 +124,7 @@ watch(showShell, (v) => { if (v && !isGuest()) void loadBasics() })
     <!-- 侧边栏（登录页隐藏；路由出口必须常驻，否则 /login 无处渲染） -->
     <aside
       v-if="showShell"
-      class="flex w-56 shrink-0 flex-col border-r border-line-soft bg-black/30 backdrop-blur-xl"
+      class="flex w-64 shrink-0 flex-col border-r border-line-soft bg-black/30 backdrop-blur-xl"
     >
       <div class="px-5 pb-4 pt-6">
         <div class="flex items-center gap-2.5">
@@ -130,16 +135,16 @@ watch(showShell, (v) => { if (v && !isGuest()) void loadBasics() })
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.film" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </div>
           <div>
-            <div class="text-sm font-extrabold tracking-wide text-slate-100">场记 Slate</div>
+            <div class="text-sm font-extrabold tracking-wide text-slate-100">{{ t('app.brand') }}</div>
             <div class="text-2xs tracking-[0.2em] text-slate-500">SLATE · PREVIS WORKBENCH</div>
           </div>
         </div>
       </div>
 
-      <nav class="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 pb-3" aria-label="工作台导航">
+      <nav class="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 pb-3" :aria-label="t('app.navAria')">
         <template v-for="r in navItems" :key="r.key">
           <div v-if="r.group && r.group !== (navItems[navItems.indexOf(r)-1]?.group || '')"
-            class="mt-3 mb-1 px-3 text-2xs font-black tracking-[0.25em] text-slate-500">{{ r.group }}</div>
+            class="mt-3 mb-1 px-3 text-2xs font-black tracking-[0.25em] text-slate-500">{{ t('nav.groups.' + r.group) }}</div>
           <RouterLink
           :to="r.to"
           v-slot="{ isActive, navigate }"
@@ -159,7 +164,7 @@ watch(showShell, (v) => { if (v && !isGuest()) void loadBasics() })
               :style="isActive ? { color: theme.c1 } : {}"
               class="transition-transform duration-200 group-hover:scale-110"
             ><path :d="icons[r.icon]" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            {{ r.label }}
+            {{ t('nav.' + r.key) }}
           </button>
         </RouterLink>
         </template>
@@ -167,9 +172,9 @@ watch(showShell, (v) => { if (v && !isGuest()) void loadBasics() })
 
       <!-- 当前项目 -->
       <div class="border-t border-line-soft p-3">
-        <label class="mb-1 block text-2xs text-slate-500">当前项目</label>
+        <label class="mb-1 block text-2xs text-slate-500">{{ t('app.currentProject') }}</label>
         <select class="select" :value="app.current" @change="selectProject(($event.target as HTMLSelectElement).value)">
-          <option value="" disabled>— 选择项目 —</option>
+          <option value="" disabled>{{ t('app.pickProject') }}</option>
           <option v-for="p in app.projects" :key="p.name" :value="p.name">{{ p.name }}</option>
         </select>
         <div v-if="currentProject" class="mt-2 truncate text-2xs text-slate-500" :title="currentProject.name">
@@ -183,16 +188,22 @@ watch(showShell, (v) => { if (v && !isGuest()) void loadBasics() })
           <button class="flex w-full items-center gap-1.5 rounded-lg px-1 py-1 hover:bg-white/5" @click="updateOpen = !updateOpen">
             <span class="h-1.5 w-1.5 rounded-full" :class="update.behind ? 'bg-amber-400' : (update.ahead ? 'bg-sky-400' : 'bg-emerald-400')"></span>
             <span :class="update.behind ? 'text-amber-300' : (update.ahead ? 'text-sky-300' : 'text-slate-500')">
-              {{ update.behind ? `GitHub 有更新（落后 ${update.behind} 个提交）` : (update.ahead ? `本地领先 ${update.ahead} 个提交（未推送）` : '已是最新版本') }}
+              {{ update.behind ? t('app.update.behind', { n: update.behind }) : (update.ahead ? t('app.update.ahead', { n: update.ahead }) : t('app.update.latest')) }}
             </span>
           </button>
           <div v-if="updateOpen && update.behind" class="mt-1 space-y-1 rounded-lg bg-black/40 p-2">
             <div v-for="c in update.commits" :key="c" class="truncate font-mono text-slate-400" :title="c">{{ c }}</div>
-            <button class="btn btn-sm w-full" :disabled="updateBusy" @click="doUpdate">拉取更新并重启</button>
-            <button class="btn btn-ghost btn-sm w-full" :disabled="updateBusy" title="回滚到上次更新前的版本（更新时自动留了 backup 分支）" @click="doRollback">回滚上一版本</button>
+            <button class="btn btn-sm w-full" :disabled="updateBusy" @click="doUpdate">{{ t('app.update.pull') }}</button>
+            <button class="btn btn-ghost btn-sm w-full" :disabled="updateBusy" :title="t('app.update.rollbackTitle')" @click="doRollback">{{ t('app.update.rollback') }}</button>
           </div>
         </div>
-        <button class="text-slate-600 hover:text-slate-300" @click="doLogout">退出登录</button>
+        <div class="flex items-center justify-between gap-2">
+          <button class="text-slate-600 hover:text-slate-300" @click="doLogout">{{ t('app.logout') }}</button>
+          <select class="rounded bg-transparent text-slate-500 hover:text-slate-300 focus:outline-none" :aria-label="t('app.language')" :title="t('app.language')"
+            :value="locale" @change="setLocale(($event.target as HTMLSelectElement).value as Locale)">
+            <option v-for="l in LOCALES" :key="l.code" :value="l.code" class="bg-slate-900">{{ l.label }}</option>
+          </select>
+        </div>
       </div>
     </aside>
 

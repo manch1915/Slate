@@ -10,7 +10,7 @@ test('成功、失败、中断、丢失均通知一次，排队不提前完成',
   const helpers = api.slice(api.indexOf('export function jobDone'), api.indexOf('export function fmtT'))
   const source = fs.readFileSync(new URL('../src/stores/jobs.ts', import.meta.url), 'utf8').replace(/^import .*$/mg, '')
   const js = ts.transpile(helpers + source, {target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS})
-  const context = {exports:{}, reactive:x=>x, toast:(...x)=>notices.push(x),
+  const context = {exports:{}, reactive:x=>x, t:(k)=>k, toast:(...x)=>notices.push(x),
     fetchJob:async id=>responses.get(id), fetchJobs:async()=>({jobs:[]}),
     authReady:Promise.resolve(true), isGuest:()=>false,
     sessionStorage:{getItem:()=>null,setItem:()=>{}},
