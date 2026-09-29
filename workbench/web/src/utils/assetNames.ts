@@ -15,10 +15,12 @@ export function speakerName(
 export function sceneLabel(
   shot: { scene_ref?: string; scene?: string },
   sceneNames: Record<string, string>,
+  /** 无 scene_ref 时 field/room 的显示名；界面传入当前语言的译名（纯函数不依赖 i18n，node 测试直接加载） */
+  labels: { field: string; room: string } = { field: '外景', room: '室内' },
 ): string {
   const ref = String(shot.scene_ref || '').replace(/^@scene:/, '').trim()
   if (ref) return sceneNames[ref] || ref
-  if (shot.scene === 'field') return '外景'
-  if (shot.scene === 'room') return '室内'
+  if (shot.scene === 'field') return labels.field
+  if (shot.scene === 'room') return labels.room
   return ''
 }

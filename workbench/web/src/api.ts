@@ -3,6 +3,7 @@
 import type { ChatGPTRun } from './utils/chatgptRun'
 import { visibleVendors } from './utils/providerVisibility'
 import { createVersionBatcher } from './utils/versionBatch'
+import { t } from './i18n'
 
 export interface Project {
   name: string
@@ -135,7 +136,7 @@ function noteUnauthorized(needSetup?: boolean) {
   }
 }
 function assertApiOpen(url: string) {
-  if (guest && !url.startsWith('/api/auth')) throw new ApiError(401, '未登录')
+  if (guest && !url.startsWith('/api/auth')) throw new ApiError(401, t('api.notLoggedIn'))
 }
 /** 首次认证结论（jobs 轮询等模块级订阅者据此决定是否启动）：true=已登录，false=访客。 */
 let settleAuth: ((authed: boolean) => void) | undefined
@@ -159,8 +160,8 @@ async function fetchWithTimeout(url: string, init?: RequestInit, timeoutMs = FET
     return r
   } catch (e) {
     if (e instanceof DOMException && e.name === 'AbortError') {
-      if (outer?.aborted) throw new ApiError(0, '已取消')
-      throw new ApiError(0, `请求超时（>${Math.round(timeoutMs / 1000)}s）：${url.split('?')[0]}`)
+      if (outer?.aborted) throw new ApiError(0, t('api.cancelled'))
+      throw new ApiError(0, t('api.timeout', { s: Math.round(timeoutMs / 1000), url: url.split('?')[0] }))
     }
     throw e
   } finally {
@@ -403,15 +404,15 @@ export interface EnvInfo {
 
 export type ModelSlot = 'text' | 'vision' | 'image' | 'image_edit' | 'video' | 'music' | 'speech'
 
-export const MODEL_SLOTS: { key: ModelSlot; label: string; color: string }[] = [
-  { key: 'text', label: '文本', color: '#22d3ee' },
-  { key: 'vision', label: '视觉', color: '#a78bfa' },
-  { key: 'image', label: '生图', color: '#e879f9' },
-  { key: 'image_edit', label: '改图', color: '#f472b6' },
-  { key: 'video', label: '生视频', color: '#fb7185' },
-  { key: 'music', label: '音乐', color: '#fbbf24' },
-  { key: 'speech', label: '语音', color: '#34d399' }
-]
+export const MODEL_SLOTS: { key: ModelSlot; readonly label: string; color: string }[] = ([
+  { key: 'text', color: '#22d3ee' },
+  { key: 'vision', color: '#a78bfa' },
+  { key: 'image', color: '#e879f9' },
+  { key: 'image_edit', color: '#f472b6' },
+  { key: 'video', color: '#fb7185' },
+  { key: 'music', color: '#fbbf24' },
+  { key: 'speech', color: '#34d399' }
+] as const).map((s) => ({ ...s, get label() { return t('api.slot.' + s.key) } }))
 
 export interface Vendor {
   video_capabilities?: import('./utils/videoSettings').VideoCapability
@@ -762,7 +763,7 @@ export async function controlChatGPTRun(project: string, runId: string, token: s
     body: JSON.stringify({ project, run_id: runId, action, reason })
   }, 120000)
   const data = (await response.json().catch(() => ({}))) as { ok?: boolean; run?: ChatGPTRun; err?: string }
-  if (!response.ok || data.ok === false) throw new ApiError(response.status, data.err || `运行控制失败（${response.status}）`)
+  if (!response.ok || data.ok === false) throw new ApiError(response.status, data.err || t('api.runControlFailed', { status: response.status }))
   return data as { ok: true; run: ChatGPTRun }
 }
 
@@ -773,7 +774,7 @@ export const importChatGPTPackage = (project: string, file: File, signal?: Abort
   // 上传体积可能较大：5 分钟超时，支持外部 signal 强制取消
   return fetchWithTimeout('/api/create/chatgpt/import', { method: 'POST', body: form, signal }, 300000).then(async r => {
     const data = await r.json()
-    if (!r.ok || data?.ok === false) throw new Error(data?.err || `导入失败（${r.status}）`)
+    if (!r.ok || data?.ok === false) throw new Error(data?.err || t('api.importFailed', { status: r.status }))
     return data as { ok: boolean; imported: number; items: string[] }
   })
 }
@@ -786,7 +787,7 @@ export const importChatGPTImages = (project: string, rows: { file: File; job: Ch
     schema_version: '1.0', generator: 'chatgpt', project,
     assets: rows.map(({ job }) => {
       const version = Number(job.filename.match(/_v(\d+)\.[^.]+$/i)?.[1] || 0)
-      if (!version) throw new Error(`任务缺少版本号：${job.filename}`)
+      if (!version) throw new Error(t('api.noVersion', { file: job.filename }))
       return { job_id: job.id, task_type: job.task_type, version, file: `images/${job.filename}` }
     })
   }
@@ -794,7 +795,7 @@ export const importChatGPTImages = (project: string, rows: { file: File; job: Ch
   rows.forEach(({ file, job }) => form.append('image', file, `images/${job.filename}`))
   return fetchWithTimeout('/api/create/chatgpt/import', { method: 'POST', body: form, signal }, 300000).then(async r => {
     const data = await r.json()
-    if (!r.ok || data?.ok === false) throw new Error(data?.err || `导入失败（${r.status}）`)
+    if (!r.ok || data?.ok === false) throw new Error(data?.err || t('api.importFailed', { status: r.status }))
     return data as { ok: boolean; imported: number; items: string[] }
   })
 }

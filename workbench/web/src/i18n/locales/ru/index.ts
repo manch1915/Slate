@@ -5,5 +5,6 @@ import jobs from './jobs'
 import common from './common'
 import components from './components'
 import vocab from './vocab'
+import api from './api'
 
-export default { nav, app, jobs, common, components, vocab }
+export default { nav, app, jobs, common, components, vocab, api }
