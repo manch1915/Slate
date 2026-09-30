@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../i18n'
 // -*- coding: utf-8 -*-
 /** 环境：本机运行环境检测（python/ffmpeg/blender/MCP/依赖包） + AI 厂商配置（厂商卡片 + 五能力槽编辑/拉取模型/测试/增删/整体保存）。 */
 import { ref, computed, onMounted, watch, onBeforeUnmount } from 'vue'
@@ -20,26 +21,26 @@ const GLOW = 'rgba(245,158,11,0.35)'
 const emptyModels = (): Record<ModelSlot, string> => ({ text: '', vision: '', image: '', image_edit: '', video: '', music: '', speech: '' })
 
 /** 豆包 Agent Plan 语音：独立 Key 可选；端点与 Resource-Id 固定在后端。 */
-const SPEECH_EXTRA_KEYS = [
-  { key: 'speech_api_key', label: '语音 Plan API Key（留空共用上方 Key）', secret: true, ph: '留空使用豆包 API Key' }
-] as const
+const SPEECH_EXTRA_KEYS = computed(() => [
+  { key: 'speech_api_key', label: t('views.env.speechKey'), secret: true, ph: t('views.env.speechKeyPh') }
+] as const)
 const extraDrafts = ref<Record<string, Record<string, string>>>({})
 const hasSpeechExtra = (v: Vendor) => v.id === 'doubao'
 
 /* ---------- 单价配置（用量计费；随「保存全部」走 saveEnvConfig 落盘） ---------- */
 const pricingOpen = ref<Record<string, boolean>>({})
 /** 可配价的能力槽与字段：text/vision=每百万 token 输入/输出；image/image_edit=每张；video=每秒；speech/music=每次 */
-const PRICING_SLOTS: { key: ModelSlot; label: string; fields: { f: string; label: string }[] }[] = [
-  { key: 'text', label: '文本', fields: [{ f: 'input', label: '输入/百万token' }, { f: 'output', label: '输出/百万token' }] },
-  { key: 'vision', label: '视觉', fields: [{ f: 'input', label: '输入/百万token' }, { f: 'output', label: '输出/百万token' }] },
-  { key: 'image', label: '生图', fields: [{ f: 'per_image', label: '每张' }] },
-  { key: 'image_edit', label: '改图', fields: [{ f: 'per_image', label: '每张' }] },
-  { key: 'video', label: '视频', fields: [{ f: 'per_second', label: '每秒' }] },
-  { key: 'speech', label: '语音', fields: [{ f: 'per_call', label: '每次' }] },
-  { key: 'music', label: '音乐', fields: [{ f: 'per_call', label: '每次' }] }
-]
+const PRICING_FIELDS: Record<ModelSlot, string[]> = {
+  text: ['input', 'output'], vision: ['input', 'output'], image: ['per_image'], image_edit: ['per_image'],
+  video: ['per_second'], speech: ['per_call'], music: ['per_call']
+}
+const PRICING_SLOTS = computed<{ key: ModelSlot; label: string; fields: { f: string; label: string }[] }[]>(() =>
+  (Object.keys(PRICING_FIELDS) as ModelSlot[]).map((key) => ({
+    key, label: t('api.slot.' + key),
+    fields: PRICING_FIELDS[key].map((f) => ({ f, label: t('views.env.price.' + f) }))
+  })))
 /** 只给已填模型的能力槽渲染价格输入。 */
-const pricingSlotsOf = (v: Vendor) => PRICING_SLOTS.filter((s) => (v.models?.[s.key] || '').trim() !== '')
+const pricingSlotsOf = (v: Vendor) => PRICING_SLOTS.value.filter((s) => (v.models?.[s.key] || '').trim() !== '')
 /** 读价：优先当前模型名键，回落 "*" 通配键。 */
 function pricingVal(v: Vendor, kind: ModelSlot, field: string): string {
   const table = (v.pricing as Record<string, Record<string, Record<string, number>>> | undefined)?.[kind]
@@ -72,8 +73,8 @@ const durationSaving = ref(false)
 async function loadStudioSettings() { try { defaultDuration.value = (await fetchStudioSettings()).default_video_duration } catch { /* 保持默认 */ } }
 async function saveDuration() {
   durationSaving.value = true
-  try { const r = await saveStudioSettings({ default_video_duration: Number(defaultDuration.value) }); defaultDuration.value = r.default_video_duration; toast('制作默认已保存', 'ok') }
-  catch (e) { toast(e instanceof Error ? e.message : '保存失败', 'err') }
+  try { const r = await saveStudioSettings({ default_video_duration: Number(defaultDuration.value) }); defaultDuration.value = r.default_video_duration; toast(t('views.env.studioSaved'), 'ok') }
+  catch (e) { toast(e instanceof Error ? e.message : t('common.saveFailed'), 'err') }
   finally { durationSaving.value = false }
 }
 
@@ -82,7 +83,7 @@ async function detect() {
   try {
     env.value = await fetchEnv()
   } catch {
-    toast('环境检测失败（后端可能未就绪）', 'err')
+    toast(t('views.env.detectFailed'), 'err')
   } finally {
     detecting.value = false
   }
@@ -112,7 +113,7 @@ async function loadComfyWorkflows() {
     comfyWorkflows.value = r.workflows || []
     comfyWorkflowMsg.value = r.err || ''
   } catch (e) {
-    comfyWorkflowMsg.value = e instanceof Error ? e.message : '工作流目录读取失败'
+    comfyWorkflowMsg.value = e instanceof Error ? e.message : t('views.env.wfFailed')
   } finally {
     loadingComfyWorkflows.value = false
   }
@@ -131,7 +132,7 @@ let autoSaveTimer: ReturnType<typeof setTimeout> | undefined
 function scheduleAutoSave() {
   if (autoSaveTimer) clearTimeout(autoSaveTimer)
   if (loadingConfig.value || !dirty.value) return
-  autoSaveNote.value = '待自动保存…'
+  autoSaveNote.value = t('views.env.autoPending')
   autoSaveTimer = setTimeout(autoSave, 800)
 }
 async function autoSave() {
@@ -140,15 +141,15 @@ async function autoSave() {
   const signature = JSON.stringify(canonical(vendors.value))
   const payload = JSON.parse(signature) as Vendor[]
   saving.value = true
-  autoSaveNote.value = '保存中…'
+  autoSaveNote.value = t('common.saving')
   let succeeded = false
   try {
     await saveEnvConfig(payload)
     pristineListSig.value = signature
     pristineMap.value = Object.fromEntries(payload.map(v => [v.id, JSON.stringify(v)]))
-    autoSaveNote.value = '已自动保存'
+    autoSaveNote.value = t('views.env.autoSaved')
     succeeded = true
-  } catch (e) { autoSaveNote.value = `保存失败：${e instanceof Error ? e.message : '请重试'}` }
+  } catch (e) { autoSaveNote.value = t('views.env.autoFailed', { err: e instanceof Error ? e.message : t('views.env.retry') }) }
   finally { saving.value = false }
   if (succeeded && dirty.value) scheduleAutoSave()
 }
@@ -203,7 +204,7 @@ async function loadConfig() {
     pristineListSig.value = JSON.stringify(canonical(vendors.value))
     pristineMap.value = Object.fromEntries(vendors.value.map((v) => [v.id, JSON.stringify(cardCanonical(v))]))
   } catch {
-    toast('厂商配置加载失败（后端可能未就绪）', 'err')
+    toast(t('views.env.vendorsFailed'), 'err')
   } finally {
     loadingConfig.value = false
   }
@@ -221,11 +222,11 @@ function openAdd() {
 function submitAdd() {
   const id = addForm.value.id.trim()
   if (!id) {
-    toast('请填写厂商 id', 'err')
+    toast(t('views.env.needId'), 'err')
     return
   }
   if (vendors.value.some((v) => v.id === id)) {
-    toast('厂商 id 已存在', 'err')
+    toast(t('views.env.idExists'), 'err')
     return
   }
   vendors.value.unshift({
@@ -240,11 +241,11 @@ function submitAdd() {
   keyDrafts.value[id] = ''
   addVisible.value = false
   expanded.value = id
-  toast('已新增厂商（保存后生效）', 'ok')
+  toast(t('views.env.added'), 'ok')
 }
 
 function removeVendor(v: Vendor) {
-  if (!confirm(`确定删除厂商「${v.label || v.id}」？（保存后生效）`)) return
+  if (!confirm(t('views.env.deleteConfirm', { name: v.label || v.id }))) return
   vendors.value = vendors.value.filter((x) => x.id !== v.id)
   delete keyDrafts.value[v.id]
   delete extraDrafts.value[v.id]
@@ -254,10 +255,10 @@ async function submitAll(fromCard: boolean) {
   saving.value = true
   try {
     await saveEnvConfig(canonical(vendors.value) as Vendor[])
-    toast(fromCard ? '已保存（后端为全量提交，其他卡的改动一并落盘）' : '厂商配置已保存', 'ok')
+    toast(fromCard ? t('views.env.savedAll') : t('views.env.vendorsSaved'), 'ok')
     await loadConfig()
   } catch (e) {
-    toast(e instanceof Error ? e.message : '保存失败', 'err')
+    toast(e instanceof Error ? e.message : t('common.saveFailed'), 'err')
   } finally {
     saving.value = false
   }
@@ -275,18 +276,18 @@ function primaryKind(v: Vendor): ModelSlot | undefined {
 
 async function test(v: Vendor) {
   testing.value[v.id] = true
-  testResults.value[v.id] = { ok: false, text: '测试中（用卡片当前草稿值）…' }
+  testResults.value[v.id] = { ok: false, text: t('views.env.testing') }
   const t0 = Date.now()
   try {
     const r: TestResult = await testProvider({ id: v.id, kind: primaryKind(v), draft: draftOf(v) })
     if (r.ok) {
       const ms = r.latency_ms ?? Date.now() - t0
-      testResults.value[v.id] = { ok: true, text: r.note ? `检查通过 · ${r.note}` : `连接成功 · ${ms}ms` }
+      testResults.value[v.id] = { ok: true, text: r.note ? t('views.env.testPassed', { note: r.note }) : t('views.env.connected', { ms }) }
     } else {
-      testResults.value[v.id] = { ok: false, text: r.err || r.note || '连接失败' }
+      testResults.value[v.id] = { ok: false, text: r.err || r.note || t('views.env.connFailed') }
     }
   } catch (e) {
-    testResults.value[v.id] = { ok: false, text: e instanceof Error ? e.message : '测试请求失败' }
+    testResults.value[v.id] = { ok: false, text: e instanceof Error ? e.message : t('views.env.testReqFailed') }
   } finally {
     testing.value[v.id] = false
   }
@@ -299,19 +300,19 @@ const modelMsgs = ref<Record<string, { ok: boolean; text: string }>>({})
 
 async function fetchModels(v: Vendor, slot: ModelSlot) {
   fetchingModels.value[v.id] = true
-  modelMsgs.value[v.id] = { ok: true, text: `正在用草稿值拉取「${MODEL_SLOTS.find((s) => s.key === slot)?.label}」模型列表…` }
+  modelMsgs.value[v.id] = { ok: true, text: t('views.env.fetching', { slot: MODEL_SLOTS.find((s) => s.key === slot)?.label || slot }) }
   try {
     const d = draftOf(v)
     const r = await fetchEnvModels({ id: v.id, draft: { base_url: d.base_url, api_key: d.api_key } })
     if (r.ok && r.models?.length) {
       modelsMap.value[v.id] = r.models
-      modelMsgs.value[v.id] = { ok: true, text: `已拉取 ${r.models.length} 个模型，各槽下拉可选` }
-      toast(`已拉取 ${r.models.length} 个模型（未保存）`, 'ok')
+      modelMsgs.value[v.id] = { ok: true, text: t('views.env.fetched', { n: r.models.length }) }
+      toast(t('views.env.fetchedToast', { n: r.models.length }), 'ok')
     } else {
-      modelMsgs.value[v.id] = { ok: false, text: r.err || '未获取到模型列表，可手动填写' }
+      modelMsgs.value[v.id] = { ok: false, text: r.err || t('views.env.noModels') }
     }
   } catch (e) {
-    modelMsgs.value[v.id] = { ok: false, text: e instanceof Error ? e.message : '拉取失败，可手动填写' }
+    modelMsgs.value[v.id] = { ok: false, text: e instanceof Error ? e.message : t('views.env.fetchFailed') }
   } finally {
     fetchingModels.value[v.id] = false
   }
@@ -328,8 +329,8 @@ onMounted(() => {
 <template>
   <div class="page">
     <header class="mb-6">
-      <h1 class="grad-text text-2xl font-black">④ 环境检查</h1>
-      <p class="mt-1 text-xs text-slate-500">本机运行环境自检 + AI 厂商接入配置（厂商一张卡，七个能力槽填模型；key 只存本机）</p>
+      <h1 class="grad-text text-2xl font-black">{{ $t('nav.env') }}</h1>
+      <p class="mt-1 text-xs text-slate-500">{{ $t('views.env.lead') }}</p>
     </header>
 
     <ChromeUseEnvironment />
@@ -339,36 +340,36 @@ onMounted(() => {
     <!-- 制作默认：V 分组目标生成时长 -->
     <section class="glass mb-5 p-5" :style="{ '--glow': 'rgba(251,191,36,0.22)' }">
       <div class="mb-3 flex items-center gap-2">
-        <h3 class="text-xs font-bold tracking-wider text-slate-500">制作默认</h3>
+        <h3 class="text-xs font-bold tracking-wider text-slate-500">{{ $t('views.env.studioDefaults') }}</h3>
       </div>
       <div class="flex flex-wrap items-end gap-3">
-        <label class="text-[10px] text-slate-500">默认生成视频时长（V 分组上限）
+        <label class="text-[10px] text-slate-500">{{ $t('views.env.defaultDuration') }}
           <select v-model.number="defaultDuration" class="input mt-1 w-36">
-            <option :value="8">8 秒</option>
-            <option :value="15">15 秒（主流）</option>
-            <option :value="30">30 秒（长片段模型）</option>
+            <option :value="8">{{ $t('views.env.d8') }}</option>
+            <option :value="15">{{ $t('views.env.d15') }}</option>
+            <option :value="30">{{ $t('views.env.d30') }}</option>
           </select>
         </label>
-        <button class="btn" :disabled="durationSaving" @click="saveDuration">{{ durationSaving ? '保存中…' : '保存' }}</button>
-        <p class="flex-1 text-[10px] leading-relaxed text-slate-500">V 分组与自动拆分按此时长执行；同场景连续镜头超过上限会自动切成多个 V（提示词继承并标记待重写）。个别厂商模型上限更低时以提交阶段的模型校验为准。</p>
+        <button class="btn" :disabled="durationSaving" @click="saveDuration">{{ durationSaving ? $t('common.saving') : $t('common.save') }}</button>
+        <p class="flex-1 text-[10px] leading-relaxed text-slate-500">{{ $t('views.env.durationHint') }}</p>
       </div>
     </section>
 
     <!-- 上半：本机环境 -->
     <section class="glass mb-5 p-5" :style="{ '--glow': GLOW }">
       <div class="mb-4 flex items-center gap-2">
-        <h3 class="text-xs font-bold text-slate-500">本机环境</h3>
+        <h3 class="text-xs font-bold text-slate-500">{{ $t('views.env.localEnv') }}</h3>
         <div class="flex-1"></div>
         <button class="btn btn-ghost btn-sm" :disabled="detecting" @click="detect">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path :d="icons.refresh" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
-          {{ detecting ? '检测中…' : '重新检测' }}
+          {{ detecting ? $t('views.blender.detecting') : $t('views.blender.redetect') }}
         </button>
       </div>
 
-      <div v-if="!env && detecting" class="p-10 text-center text-sm text-slate-500">检测中…</div>
-      <div v-else-if="!env" class="p-10 text-center text-sm text-slate-500">环境信息不可用，点「重新检测」重试</div>
+      <div v-if="!env && detecting" class="p-10 text-center text-sm text-slate-500">{{ $t('views.blender.detecting') }}</div>
+      <div v-else-if="!env" class="p-10 text-center text-sm text-slate-500">{{ $t('views.env.envUnavailable') }}</div>
 
       <template v-else>
         <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -377,7 +378,7 @@ onMounted(() => {
             <div class="mb-1 text-2xs tracking-wider text-slate-500">PYTHON</div>
             <div class="flex items-center gap-2">
               <span class="h-2 w-2 rounded-full" :class="env.python ? 'bg-emerald-400' : 'bg-rose-400'"></span>
-              <span class="text-sm font-bold text-slate-100">{{ env.python || '未找到' }}</span>
+              <span class="text-sm font-bold text-slate-100">{{ env.python || $t('views.env.notFound') }}</span>
             </div>
           </div>
           <!-- ffmpeg -->
@@ -385,7 +386,7 @@ onMounted(() => {
             <div class="mb-1 text-2xs tracking-wider text-slate-500">FFMPEG</div>
             <div class="flex items-center gap-2">
               <span class="h-2 w-2 rounded-full" :class="env.ffmpeg ? 'bg-emerald-400' : 'bg-rose-400'"></span>
-              <span class="truncate text-xs text-slate-300" :title="env.ffmpeg || ''">{{ env.ffmpeg || '未找到' }}</span>
+              <span class="truncate text-xs text-slate-300" :title="env.ffmpeg || ''">{{ env.ffmpeg || $t('views.env.notFound') }}</span>
             </div>
           </div>
           <!-- Blender -->
@@ -393,7 +394,7 @@ onMounted(() => {
             <div class="mb-1 text-2xs tracking-wider text-slate-500">BLENDER</div>
             <div class="flex items-center gap-2">
               <span class="h-2 w-2 rounded-full" :class="env.blender ? 'bg-emerald-400' : 'bg-rose-400'"></span>
-              <span class="truncate text-xs text-slate-300" :title="env.blender || ''">{{ env.blender || '未找到' }}</span>
+              <span class="truncate text-xs text-slate-300" :title="env.blender || ''">{{ env.blender || $t('views.env.notFound') }}</span>
             </div>
           </div>
           <!-- Blender MCP -->
@@ -402,7 +403,7 @@ onMounted(() => {
             <div class="flex items-center gap-2">
               <span class="h-2 w-2 rounded-full" :class="env.mcp ? 'bg-emerald-400 pulse-dot' : 'bg-rose-400'"></span>
               <span class="text-sm font-bold" :class="env.mcp ? 'text-emerald-300' : 'text-rose-300'">
-                {{ env.mcp ? '在线' : '离线' }}
+                {{ env.mcp ? $t('views.blender.online') : $t('views.blender.offline') }}
               </span>
               <span class="text-2xs text-slate-500">127.0.0.1:9876</span>
             </div>
@@ -410,13 +411,13 @@ onMounted(() => {
         </div>
 
         <!-- 依赖包 -->
-        <h4 class="mb-2 mt-4 text-2xs font-bold text-slate-500">PYTHON 依赖包</h4>
+        <h4 class="mb-2 mt-4 text-2xs font-bold text-slate-500">{{ $t('views.env.pyDeps') }}</h4>
         <div class="overflow-hidden rounded-xl border border-line-soft">
           <table class="w-full text-left text-xs">
             <thead>
               <tr class="bg-white/5 text-slate-500">
-                <th class="px-3 py-2 font-semibold">包名</th>
-                <th class="px-3 py-2 font-semibold">状态</th>
+                <th class="px-3 py-2 font-semibold">{{ $t('views.env.pkg') }}</th>
+                <th class="px-3 py-2 font-semibold">{{ $t('views.env.status') }}</th>
               </tr>
             </thead>
             <tbody>
@@ -424,14 +425,14 @@ onMounted(() => {
                 <td class="px-3 py-1.5 font-mono text-slate-300">{{ name }}</td>
                 <td class="px-3 py-1.5">
                   <span
-                    v-if="ver !== '缺失'"
+                    v-if="ver !== $t('views.env.missing')"
                     class="rounded-full bg-emerald-400/10 px-2 py-0.5 font-semibold text-emerald-300"
                   >{{ ver }}</span>
-                  <span v-else class="rounded-full bg-rose-400/10 px-2 py-0.5 font-semibold text-rose-300">缺失</span>
+                  <span v-else class="rounded-full bg-rose-400/10 px-2 py-0.5 font-semibold text-rose-300">{{ $t('views.env.missing') }}</span>
                 </td>
               </tr>
               <tr v-if="!pkgList.length" class="border-t border-line-soft bg-black/20">
-                <td colspan="2" class="px-3 py-3 text-center text-slate-500">暂无依赖信息</td>
+                <td colspan="2" class="px-3 py-3 text-center text-slate-500">{{ $t('views.env.noDeps') }}</td>
               </tr>
             </tbody>
           </table>
@@ -442,30 +443,30 @@ onMounted(() => {
     <!-- 下半：AI 厂商 -->
     <section class="glass p-5" :style="{ '--glow': GLOW }">
       <div class="mb-4 flex flex-wrap items-center gap-2">
-        <h3 class="text-xs font-bold text-slate-500">AI 厂商</h3>
+        <h3 class="text-xs font-bold text-slate-500">{{ $t('views.env.vendors') }}</h3>
         <span v-if="dirty" class="pop-in rounded-full bg-amber-400/15 px-2 py-0.5 text-2xs font-bold text-amber-300">
-          ● 有未保存修改
+          {{ $t('views.env.unsaved') }}
         </span>
         <div class="flex-1"></div>
         <button class="btn btn-ghost btn-sm" @click="openAdd">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
             <path :d="icons.plus" stroke-linecap="round" />
           </svg>
-          新增厂商
+          {{ $t('views.env.addVendor') }}
         </button>
         <button class="btn" :disabled="!dirty || saving" @click="saveAll">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path :d="icons.save" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
-          {{ saving ? '保存中…' : '保存全部' }}
+          {{ saving ? $t('common.saving') : $t('views.env.saveAll') }}
         </button>
       </div>
 
-      <div v-if="loadingConfig" class="p-10 text-center text-sm text-slate-500">加载厂商配置…</div>
+      <div v-if="loadingConfig" class="p-10 text-center text-sm text-slate-500">{{ $t('views.env.loadingVendors') }}</div>
 
       <div v-else-if="!vendors.length" class="p-8 text-center">
-        <p class="text-sm text-slate-300">还没有配置任何厂商</p>
-        <p class="mt-2 text-xs text-slate-500">修改后自动保存；未启用也可测试和拉取模型，启用只控制生成时是否可选。{{ autoSaveNote }}</p>
+        <p class="text-sm text-slate-300">{{ $t('views.env.noVendors') }}</p>
+        <p class="mt-2 text-xs text-slate-500">{{ $t('views.env.autoNote') }}{{ autoSaveNote }}</p>
       </div>
 
       <div v-else class="grid grid-cols-1 gap-3 lg:grid-cols-2">
@@ -488,11 +489,11 @@ onMounted(() => {
             </span>
             <div class="min-w-0 flex-1">
               <div class="truncate text-sm font-bold text-slate-100">{{ v.label || v.id }}</div>
-              <div class="truncate text-2xs text-slate-500">{{ v.base_url || '未设置 base_url' }}</div>
+              <div class="truncate text-2xs text-slate-500">{{ v.base_url || $t('views.env.noBaseUrl') }}</div>
               <div v-if="v.note" class="mt-0.5 line-clamp-2 text-2xs leading-relaxed text-amber-200/70">{{ v.note }}</div>
             </div>
             <!-- 已配置能力槽小圆点 -->
-            <div class="hidden shrink-0 gap-1 sm:flex" :title="'已配置能力槽'">
+            <div class="hidden shrink-0 gap-1 sm:flex" :title="$t('views.env.slotsConfigured')">
               <span
                 v-for="s in MODEL_SLOTS"
                 :key="s.key"
@@ -500,12 +501,12 @@ onMounted(() => {
                 :style="{ background: v.models?.[s.key] ? s.color : 'rgba(148,163,184,0.2)' }"
               ></span>
             </div>
-            <span class="shrink-0 rounded-full px-2 py-0.5 text-2xs font-bold" :class="v.enabled?'bg-emerald-500/20 text-emerald-300':'bg-slate-500/15 text-slate-400'">{{ v.enabled?'● 已启用':'已停用' }}</span>
+            <span class="shrink-0 rounded-full px-2 py-0.5 text-2xs font-bold" :class="v.enabled?'bg-emerald-500/20 text-emerald-300':'bg-slate-500/15 text-slate-400'">{{ v.enabled?$t('views.env.enabledDot'):$t('views.env.disabledTag') }}</span>
             <span
               v-if="cardDirty(v)"
               class="pop-in shrink-0 rounded-full bg-amber-400/20 px-2 py-0.5 text-2xs font-bold text-amber-300"
-              title="此卡有未落盘的改动"
-            >未保存</span>
+              :title="$t('views.env.dirtyTitle')"
+            >{{ $t('views.env.unsavedTag') }}</span>
             <svg
               width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"
               class="shrink-0 transition-transform duration-200"
@@ -519,12 +520,12 @@ onMounted(() => {
           <div v-if="expanded === v.id" class="mt-3 space-y-2 border-t border-line-soft pt-3">
             <div class="grid grid-cols-2 gap-2">
               <label class="text-2xs text-slate-500">
-                厂商 ID
+                {{ $t('views.env.vendorId') }}
                 <input :value="v.id" class="input mt-0.5 font-mono opacity-60" disabled />
               </label>
               <label class="text-2xs text-slate-500">
-                名称
-                <input v-model="v.label" class="input mt-0.5" placeholder="自定义厂商名称" />
+                {{ $t('views.env.name') }}
+                <input v-model="v.label" class="input mt-0.5" :placeholder="$t('views.env.labelPh')" />
               </label>
               <label class="col-span-2 text-2xs text-slate-500">
                 Base URL
@@ -532,44 +533,45 @@ onMounted(() => {
               </label>
               <div v-if="v.id === 'local-comfyui'" class="col-span-2 rounded-xl border border-cyan-400/15 bg-cyan-400/5 p-2.5 text-2xs">
                 <div class="flex items-center gap-2 text-cyan-200">
-                  <span class="font-bold">ComfyUI 工作流</span>
-                  <span class="text-2xs text-slate-500">只影响“生图参考图”</span>
+                  <span class="font-bold">{{ $t('views.env.comfy') }}</span>
+                  <span class="text-2xs text-slate-500">{{ $t('views.env.comfyScope') }}</span>
                   <button class="btn btn-ghost ml-auto !px-2 !py-1 text-2xs" :disabled="loadingComfyWorkflows" @click.stop="loadComfyWorkflows">
-                    {{ loadingComfyWorkflows ? '刷新中…' : '刷新列表' }}
+                    {{ loadingComfyWorkflows ? $t('views.billing.refreshing') : $t('views.env.refreshList') }}
                   </button>
                 </div>
-                <label class="mt-2 block text-2xs text-slate-400">文生图工作流（按模型匹配）
+                <label class="mt-2 block text-2xs text-slate-400">{{ $t('views.env.genWf') }}
                   <select v-model="v.extra!.workflow_path" class="input mt-1 w-full font-mono text-2xs">
-                    <option value="">自动匹配模型：Z-Image / Qwen Image 2.1</option>
+                    <option value="">{{ $t('views.env.genAuto') }}</option>
                     <option v-for="wf in comfyWorkflows" :key="'gen-'+wf.path" :value="wf.path">
-                      {{ wf.path }} · {{ wf.refs?.length || 0 }} 个参考位{{ wf.error ? ' · 文件有误' : '' }}
+                      {{ wf.path }} · {{ $t('views.env.refSlots', { n: wf.refs?.length || 0 }) }}{{ wf.error ? $t('views.env.fileError') : '' }}
                     </option>
                   </select>
                   <input v-model="v.extra!.workflow_path" class="input mt-1 font-mono text-2xs"
-                    placeholder="也可手动填 workbench/workflows 下的相对路径" />
+                    :placeholder="$t('views.env.wfPathPh')" />
                 </label>
-                <label class="mt-2 block text-2xs text-slate-400">参考图工作流（按模型匹配）
+                <label class="mt-2 block text-2xs text-slate-400">{{ $t('views.env.editWf') }}
                   <select v-model="v.extra!.image_edit_workflow_path" class="input mt-1 w-full font-mono text-2xs">
-                    <option value="">自动匹配模型：Qwen Image 2.1 / Qwen Edit</option>
+                    <option value="">{{ $t('views.env.editAuto') }}</option>
                     <option v-for="wf in comfyWorkflows" :key="'edit-'+wf.path" :value="wf.path">
-                      {{ wf.path }} · {{ wf.refs?.length || 0 }} 个参考位{{ wf.error ? ' · 文件有误' : '' }}
+                      {{ wf.path }} · {{ $t('views.env.refSlots', { n: wf.refs?.length || 0 }) }}{{ wf.error ? $t('views.env.fileError') : '' }}
                     </option>
                   </select>
                   <input v-model="v.extra!.image_edit_workflow_path" class="input mt-1 font-mono text-2xs"
-                    placeholder="Qwen 改图 API JSON 相对路径（需 LoadImage.image={{ref1}}）" />
+                    :placeholder="$t('views.env.editWfPh')" />
                 </label>
                 <p class="mt-1.5 leading-relaxed text-slate-400">
-                  操作：在 ComfyUI 加载工作流 → 菜单“Save (API Format)”导出 JSON → 放入
-                  <span class="font-mono text-cyan-300">workbench/workflows</span> → 点“刷新列表”并选择。
-                  工作流中需要把参考图节点的 <span class="font-mono text-cyan-300">LoadImage.image</span> 填成
-                  <span class="font-mono text-cyan-300">&#123;&#123;ref1&#125;&#125;</span>、<span class="font-mono text-cyan-300">&#123;&#123;ref2&#125;&#125;</span>…；负面词输入位用
-                  <span class="font-mono text-cyan-300">&#123;&#123;negative&#125;&#125;</span>。
+                  <i18n-t keypath="views.env.comfyHowto" tag="span">
+                    <template #dir><span class="font-mono text-cyan-300">workbench/workflows</span></template>
+                    <template #node><span class="font-mono text-cyan-300">LoadImage.image</span></template>
+                    <template #refs><span class="font-mono text-cyan-300">&#123;&#123;ref1&#125;&#125;</span>, <span class="font-mono text-cyan-300">&#123;&#123;ref2&#125;&#125;</span></template>
+                    <template #neg><span class="font-mono text-cyan-300">&#123;&#123;negative&#125;&#125;</span></template>
+                  </i18n-t>
                 </p>
                 <p class="mt-1 leading-relaxed text-amber-300/80">
-                  视频槽走内置 MiniMax H3 工作流，最多 3 张参考图，不读取这里的生图工作流；需要 SD1.5/SDXL 视频时，必须另外导出对应的视频 API 工作流并接入专用适配器。
+                  {{ $t('views.env.videoSlotNote') }}
                 </p>
                 <p v-if="comfyWorkflowMsg" class="mt-1 text-rose-300">{{ comfyWorkflowMsg }}</p>
-                <p v-if="!loadingComfyWorkflows && !comfyWorkflows.length" class="mt-1 text-amber-300/80">当前目录还没有 API 工作流 JSON；系统先识别所选模型，再按参考图选择兼容工作流；未知模型需提供专用 API 工作流。自定义工作流仅用于覆盖默认链路。</p>
+                <p v-if="!loadingComfyWorkflows && !comfyWorkflows.length" class="mt-1 text-amber-300/80">{{ $t('views.env.noWf') }}</p>
               </div>
               <label v-if="v.id !== 'local-comfyui' && v.id !== 'chatgpt-queue'" class="col-span-2 text-2xs text-slate-500">
                 API Key
@@ -577,23 +579,23 @@ onMounted(() => {
                   v-model="keyDrafts[v.id]"
                   type="password"
                   class="input mt-0.5 font-mono"
-                  :placeholder="v.api_key ? `已保存：${v.api_key}（留空保留）` : 'sk-…'"
+                  :placeholder="v.api_key ? $t('views.env.keySaved', { key: v.api_key }) : 'sk-…'"
                 />
               </label>
             </div>
 
-            <p v-if="v.id === 'chatgpt-queue'" class="text-xs text-sky-300"><a href="https://github.com/leeguooooo/image-use" target="_blank" rel="noopener" title="网页生图由 image-use 提供；工作台负责排队与导入。">服务由 image-use 提供 ↗</a> · 单张串行。</p>
-              <label v-if="v.models.video && v.extra" class="block text-xs text-slate-400">视频兼容型号（部署别名可选）
-                <input v-model="v.extra.video_profile" class="input mt-1" placeholder="留空自动识别；仅填本厂商已接入的标准型号" />
-                <span class="text-2xs">部署 ID / 派生版须由服务商确认兼容；不更改计费地址。未知协议需要单独适配。</span>
+            <p v-if="v.id === 'chatgpt-queue'" class="text-xs text-sky-300"><a href="https://github.com/leeguooooo/image-use" target="_blank" rel="noopener" :title="$t('views.env.imageUseTitle')">{{ $t('components.chromeUse.provider') }}</a> · {{ $t('views.env.serial') }}</p>
+              <label v-if="v.models.video && v.extra" class="block text-xs text-slate-400">{{ $t('views.env.videoProfile') }}
+                <input v-model="v.extra.video_profile" class="input mt-1" :placeholder="$t('views.env.profilePh')" />
+                <span class="text-2xs">{{ $t('views.env.profileNote') }}</span>
               </label>
-              <label v-if="v.id === 'minimax'" class="block text-xs text-slate-400">语音 voice_id
-              <input class="input mt-1" :value="v.extra?.voice_id || ''" placeholder="从 MiniMax 音色列表选取 voice_id" @input="(v.extra ??= {}).voice_id = ($event.target as HTMLInputElement).value" />
+              <label v-if="v.id === 'minimax'" class="block text-xs text-slate-400">{{ $t('views.env.voiceIdLabel') }}
+              <input class="input mt-1" :value="v.extra?.voice_id || ''" :placeholder="$t('views.env.voiceIdPh')" @input="(v.extra ??= {}).voice_id = ($event.target as HTMLInputElement).value" />
             </label>
-            <a v-if="v.documentation_url" :href="v.documentation_url" target="_blank" rel="noopener" class="text-xs text-sky-300">官方接口文档 ↗</a>
+            <a v-if="v.documentation_url" :href="v.documentation_url" target="_blank" rel="noopener" class="text-xs text-sky-300">{{ $t('views.env.docs') }}</a>
             <!-- 豆包 Agent Plan 语音配置 -->
             <div v-if="hasSpeechExtra(v)" class="rounded-xl border border-amber-400/15 bg-amber-400/5 p-2.5">
-              <div class="mb-1.5 text-2xs font-bold text-amber-300">豆包 Agent Plan 语音</div>
+              <div class="mb-1.5 text-2xs font-bold text-amber-300">{{ $t('views.env.doubaoSpeech') }}</div>
               <p class="text-2xs leading-relaxed text-slate-400">
                 TTS：/api/v3/plan/tts/unidirectional · Resource-Id seed-tts-2.0<br />
                 ASR：/api/v3/plan/sauc/bigmodel_nostream · Resource-Id volc.seedasr.sauc.duration
@@ -601,15 +603,15 @@ onMounted(() => {
               <label v-for="f in SPEECH_EXTRA_KEYS" :key="f.key" class="mt-2 block text-2xs text-slate-500">
                 {{ f.label }}
                 <input :value="extraDrafts[v.id]?.[f.key] ?? ''" type="password" class="input mt-0.5 font-mono"
-                  :placeholder="v.extra?.[f.key] ? `已保存（留空保留）` : f.ph"
+                  :placeholder="v.extra?.[f.key] ? $t('views.env.keySavedShort') : f.ph"
                   @input="(extraDrafts[v.id] ??= {})[f.key] = ($event.target as HTMLInputElement).value" />
               </label>
-              <p class="mt-1.5 text-2xs text-slate-500">语音模型固定使用 Plan Resource-Id，不通过 Auto 或模型列表切换。</p>
+              <p class="mt-1.5 text-2xs text-slate-500">{{ $t('views.env.doubaoFixed') }}</p>
             </div>
 
             <!-- 六能力槽：生图与改图分开，避免模型/工作流串用 -->
             <div>
-              <div class="mb-1 text-2xs text-slate-500">能力槽（生图与改图分开填写；留空 = 未配置）</div>
+              <div class="mb-1 text-2xs text-slate-500">{{ $t('views.env.slotsTitle') }}</div>
               <div class="space-y-1.5">
                 <div v-for="s in MODEL_SLOTS" :key="s.key" class="flex items-center gap-1.5">
                   <span
@@ -621,12 +623,12 @@ onMounted(() => {
                     class="flex-1"
                     :class="{ 'opacity-50': !v.models[s.key] }"
                     :options="modelsMap[v.id] || []"
-                    placeholder="未配置"
+                    :placeholder="$t('views.env.notSet')"
                   />
                   <button
                     class="btn btn-ghost shrink-0 !px-2 !py-1.5 text-2xs"
                     :disabled="fetchingModels[v.id]"
-                    title="用卡片当前草稿值拉取该厂商可用模型列表"
+                    :title="$t('views.env.fetchTitle')"
                     @click="fetchModels(v, s.key)"
                   >
                     <svg v-if="fetchingModels[v.id]" class="animate-spin" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -635,7 +637,7 @@ onMounted(() => {
                     <svg v-else width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                       <path :d="icons.download" stroke-linecap="round" stroke-linejoin="round" />
                     </svg>
-                    拉取
+                    {{ $t('views.env.fetch') }}
                   </button>
                 </div>
               </div>
@@ -646,8 +648,8 @@ onMounted(() => {
               >
                 {{ modelMsgs[v.id].text }}
               </div>
-              <p class="mt-1 text-2xs text-slate-500">下拉选择或手动填写模型后，需点卡片「保存」或顶部「保存全部」才会落盘</p>
-              <p v-if="v.id==='doubao'" class="mt-2 rounded-md bg-amber-500/10 p-2 text-xs text-amber-200">视频模型必须属于当前 Agent Plan 套餐。旧 Seedance 1.5 Pro 配置已被接口拒绝，请按控制台填写可用模型 ID；套餐模型列表接口不可用时可直接手填，不会自动切到按量计费接口。</p>
+              <p class="mt-1 text-2xs text-slate-500">{{ $t('views.env.saveNote') }}</p>
+              <p v-if="v.id==='doubao'" class="mt-2 rounded-md bg-amber-500/10 p-2 text-xs text-amber-200">{{ $t('views.env.doubaoVideo') }}</p>
             </div>
 
             <!-- 单价配置（用量计费）：按已配置模型的能力槽渲染价格输入 -->
@@ -657,11 +659,11 @@ onMounted(() => {
                   class="transition-transform duration-200" :class="{ 'rotate-90': pricingOpen[v.id] }">
                   <path :d="icons.chevronR" stroke-linecap="round" stroke-linejoin="round" />
                 </svg>
-                单价配置（用量计费）
-                <span class="ml-auto font-normal text-slate-600">{{ pricingSlotsOf(v).length ? '留空 = 不计费仍记调用' : '先填模型再配价' }}</span>
+                {{ $t('views.env.pricing') }}
+                <span class="ml-auto font-normal text-slate-600">{{ pricingSlotsOf(v).length ? $t('views.env.priceEmpty') : $t('views.env.modelFirst') }}</span>
               </button>
               <div v-if="pricingOpen[v.id]" class="mt-2 space-y-1.5">
-                <label class="block text-2xs text-slate-500">币种
+                <label class="block text-2xs text-slate-500">{{ $t('views.env.currency') }}
                   <input :value="v.pricing?.currency || 'CNY'" class="input mt-0.5 w-24"
                     @input="(v.pricing ??= {}).currency = ($event.target as HTMLInputElement).value || 'CNY'" />
                 </label>
@@ -669,42 +671,42 @@ onMounted(() => {
                   <span class="mt-1.5 w-14 shrink-0 rounded-md bg-white/5 px-1.5 py-1 text-center text-2xs font-bold text-slate-300">{{ s.label }}</span>
                   <label v-for="f in s.fields" :key="f.f" class="flex-1 text-2xs text-slate-500">
                     {{ f.label }}
-                    <input :value="pricingVal(v, s.key, f.f)" type="number" step="any" min="0" class="input mt-0.5" placeholder="不填不计费"
+                    <input :value="pricingVal(v, s.key, f.f)" type="number" step="any" min="0" class="input mt-0.5" :placeholder="$t('views.env.noBilling')"
                       @input="setPricingVal(v, s.key, f.f, ($event.target as HTMLInputElement).value)" />
                   </label>
                 </div>
-                <p class="text-2xs leading-relaxed text-slate-600">价格键 = 当前槽位模型名（模型改名后需重填；记账时找不到模型键会回落 "*" 通配键）。文本/视觉填每百万 token 单价。</p>
+                <p class="text-2xs leading-relaxed text-slate-600">{{ $t('views.env.priceNote') }}</p>
               </div>
             </div>
 
             <div class="flex items-center gap-2 pt-1">
               <label class="flex cursor-pointer items-center gap-1.5 text-xs text-slate-300">
                 <input v-model="v.enabled" type="checkbox" class="accent-amber-400" />
-                启用
+                {{ $t('views.env.enable') }}
               </label>
               <div class="flex-1"></div>
               <button
                 class="btn btn-sm"
                 :disabled="saving"
-                title="保存此厂商（后端为全量提交，其他卡的改动会一并落盘）"
+                :title="$t('views.env.saveTitle')"
                 @click="saveCard"
               >
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path :d="icons.save" stroke-linecap="round" stroke-linejoin="round" />
                 </svg>
-                {{ saving ? '保存中…' : '保存' }}
+                {{ saving ? $t('common.saving') : $t('common.save') }}
               </button>
               <button class="btn btn-ghost btn-sm" :disabled="testing[v.id]" @click="test(v)">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path :d="icons.bolt" stroke-linecap="round" stroke-linejoin="round" />
                 </svg>
-                {{ testing[v.id] ? '测试中…' : '测试连接' }}
+                {{ testing[v.id] ? $t('views.env.testingShort') : $t('views.env.testConn') }}
               </button>
               <button class="btn btn-danger btn-sm" @click="removeVendor(v)">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path :d="icons.trash" stroke-linecap="round" stroke-linejoin="round" />
                 </svg>
-                删除
+                {{ $t('views.env.deleteBtn') }}
               </button>
             </div>
 
@@ -728,16 +730,16 @@ onMounted(() => {
         @click.self="addVisible = false"
       >
         <div class="glass w-full max-w-md p-5" :style="{ '--glow': GLOW }">
-          <h3 class="mb-3 text-base font-bold text-slate-100">新增厂商</h3>
-          <label class="mb-1 block text-2xs text-slate-500">厂商 ID（唯一，保存后不可改）</label>
-          <input v-model="addForm.id" class="input font-mono" placeholder="如：my-vendor" />
-          <label class="mb-1 mt-3 block text-2xs text-slate-500">名称</label>
-          <input v-model="addForm.label" class="input" placeholder="如：我的厂商" />
+          <h3 class="mb-3 text-base font-bold text-slate-100">{{ $t('views.env.addVendor') }}</h3>
+          <label class="mb-1 block text-2xs text-slate-500">{{ $t('views.env.idUnique') }}</label>
+          <input v-model="addForm.id" class="input font-mono" :placeholder="$t('views.env.idPh')" />
+          <label class="mb-1 mt-3 block text-2xs text-slate-500">{{ $t('views.env.name') }}</label>
+          <input v-model="addForm.label" class="input" :placeholder="$t('views.env.namePh')" />
           <label class="mb-1 mt-3 block text-2xs text-slate-500">Base URL</label>
           <input v-model="addForm.base_url" class="input font-mono" placeholder="https://api.example.com" />
           <div class="mt-5 flex justify-end gap-2">
-            <button class="btn btn-ghost" @click="addVisible = false">取消</button>
-            <button class="btn" :disabled="!addForm.id.trim()" @click="submitAdd">新增</button>
+            <button class="btn btn-ghost" @click="addVisible = false">{{ $t('common.cancel') }}</button>
+            <button class="btn" :disabled="!addForm.id.trim()" @click="submitAdd">{{ $t('views.env.add') }}</button>
           </div>
         </div>
       </div>
