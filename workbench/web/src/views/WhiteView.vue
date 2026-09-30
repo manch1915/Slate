@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../i18n'
 import { useBoardSelection } from '../utils/useBoardSelection'
 import { shotRangeRows } from '../utils/shotRange'
 // -*- coding: utf-8 -*-
@@ -24,14 +25,14 @@ const analyses = ref<{ name: string; status?: string; shot_count?: number }[]>([
 const analysis = ref('')
 const pose = ref<'stand' | 'seated'>('stand')
 const converting = ref(false)
-const POSE_LABELS = { stand: '站立（战场/室外）', seated: '盘坐（室内/桌边）' }
+const POSE_LABELS = computed(() => ({ stand: t('views.white.pose.stand'), seated: t('views.white.pose.seated') }))
 
 const boards = computed(() => projectFiles('分镜', /\.json$/i))
-const ENGINE_LABELS = {
-  auto: 'auto（自动选择）',
-  dialogue: 'dialogue（对白）',
-  previs: 'previs（走位/动作）'
-}
+const ENGINE_LABELS = computed(() => ({
+  auto: t('views.white.engine.auto'),
+  dialogue: t('views.white.engine.dialogue'),
+  previs: t('views.white.engine.previs')
+}))
 
 const products = computed(() =>
   projectFiles('白模', /\.mp4$/i).map((f) => ({
@@ -79,9 +80,9 @@ const board = ref<WhiteBoard | null>(null)
 const boardLoading = ref(false)
 const anchorId = ref<string | null>(null)   // 点选区间的锚点（镜头 id，重读分镜后仍对得上）
 
-const CAM_LABELS: Record<string, string> = {
-  wide: '全景', two: '双人', cu: '特写', near: '近景背影', ots: '越肩', off: '自定义'
-}
+const CAM_LABELS = computed<Record<string, string>>(() => Object.fromEntries(
+  ['wide', 'two', 'cu', 'near', 'ots', 'off'].map((k) => [k, t('views.white.cam.' + k)])
+))
 const boardShots = computed(() => board.value?.shots || [])
 const boardDur = computed(() => boardShots.value.reduce((a, s) => a + (s.dur || 0), 0))
 const boardActors = computed(() =>
@@ -139,7 +140,7 @@ async function loadBoard() {
   try {
     board.value = await fetchWhiteBoard(app.current, storyboard.value)
   } catch (e) {
-    toast(e instanceof Error ? e.message : '分镜读取失败', 'err')
+    toast(e instanceof Error ? e.message : t('views.white.boardFailed'), 'err')
     // 选中的分镜已被删除/改名（如 localStorage 残留 剧本_全本.json）：自动回落到最新分镜，避免反复 404
     if (boards.value.length && !boards.value.includes(storyboard.value)) {
       storyboard.value = boards.value[0] || ''
@@ -152,11 +153,11 @@ watch(storyboard, loadBoard)
 
 async function run() {
   if (!app.current || !storyboard.value) {
-    toast('请先选择分镜 JSON', 'err')
+    toast(t('views.white.needBoard'), 'err')
     return
   }
   if (!/^\s*S?\d+\s*-\s*S?\d+\s*$/i.test(shots.value)) {
-    toast('镜头区间格式如 S3-S8', 'err')
+    toast(t('views.white.rangeFormat'), 'err')
     return
   }
   running.value = true
@@ -167,12 +168,12 @@ async function run() {
       shots: shots.value.replace(/\s/g, '').toUpperCase(),
       engine: engine.value
     })
-    toast(`白模任务 #${r.id} 已启动`, 'ok')
-    const j = await trackJob(r.id, `白模渲染 ${storyboard.value} ${shots.value}`)
-    if (j.success) { toast('白模渲染完成', 'ok'); await loadBasics() }
-    else toast('渲染失败，详情见任务抽屉', 'err')
+    toast(t('views.white.started', { id: r.id }), 'ok')
+    const j = await trackJob(r.id, t('views.white.renderJob', { board: storyboard.value, shots: shots.value }))
+    if (j.success) { toast(t('views.white.renderDone'), 'ok'); await loadBasics() }
+    else toast(t('views.white.renderFailed'), 'err')
   } catch (e) {
-    toast(e instanceof Error ? e.message : '启动失败', 'err')
+    toast(e instanceof Error ? e.message : t('common.startFailed'), 'err')
   } finally {
     running.value = false
   }
@@ -187,7 +188,7 @@ async function genFromAnalysis() {
       analysis: analysis.value || undefined,
       style: pose.value
     }) as any
-    if (r?.job && r.id) { const j = await trackJob(r.id, '从解构生成分镜'); if (!j.success) throw new Error(j.err || '生成失败') }
+    if (r?.job && r.id) { const j = await trackJob(r.id, t('views.white.genFromAnalysis')); if (!j.success) throw new Error(j.err || t('views.white.genFailed')) }
     await loadBasics()
     // 产物名规则：与 analysis 同名（analysis_to_storyboard 落 分镜/<analysis>.json）
     const sbName = r.name || (analysis.value ? analysis.value + '.json' : '')
@@ -195,12 +196,12 @@ async function genFromAnalysis() {
     if (sbName && projectFiles('分镜', /\.json$/i).includes(sbName)) {
       if (storyboard.value === sbName) loadBoard()  // 同名重生成：watch 不触发，强制刷新分镜看板
       else storyboard.value = sbName
-      toast(`已生成分镜：${sbName}`, 'ok', 4000)
+      toast(t('views.white.generated', { name: sbName }), 'ok', 4000)
     } else {
-      toast(sbName ? `生成任务已结束，但列表中未找到 ${sbName}，请检查任务日志` : '生成完成', sbName ? 'err' : 'ok', 5000)
+      toast(sbName ? t('views.white.notFound', { name: sbName }) : t('views.white.genDone'), sbName ? 'err' : 'ok', 5000)
     }
   } catch (e) {
-    toast(e instanceof Error ? e.message : '生成失败', 'err')
+    toast(e instanceof Error ? e.message : t('views.white.genFailed'), 'err')
   } finally {
     converting.value = false
   }
@@ -213,18 +214,18 @@ async function doExportPreviz() {
   exporting.value = true
   try {
     const r = await exportPreviz({ project: app.current, json: '分镜/' + storyboard.value })
-    if (!r.id) throw new Error(r.err || '导出任务未启动')
-    toast(`预演包导出任务 #${r.id} 已启动`, 'ok')
-    const j = await trackJob(r.id, `导出预演包 ${storyboard.value}`)
+    if (!r.id) throw new Error(r.err || t('views.white.exportNotStarted'))
+    toast(t('views.white.exportStarted', { id: r.id }), 'ok')
+    const j = await trackJob(r.id, t('views.white.exportJob', { board: storyboard.value }))
     if (j.success) {
       const dir = (j.out || '').trim().split('\n').filter(Boolean).pop() || ''
       await loadBasics()
-      toast(`预演包已导出${dir ? `：${dir}` : ''}`, 'ok', 5000)
+      toast(dir ? t('views.white.exportedTo', { dir }) : t('views.white.exported'), 'ok', 5000)
     } else {
-      toast('预演包导出失败，详情见任务抽屉', 'err')
+      toast(t('views.white.exportFailedLog'), 'err')
     }
   } catch (e) {
-    toast(e instanceof Error ? e.message : '导出失败', 'err')
+    toast(e instanceof Error ? e.message : t('views.white.exportFailed'), 'err')
   } finally {
     exporting.value = false
   }
@@ -248,13 +249,13 @@ async function refreshAnalyses() {
 /** 删除当前对比选中的白模视频。 */
 async function delCmp() {
   if (!app.current || !cmpVideo.value) return
-  if (!confirm(`确定删除「${cmpVideo.value.split('/').pop()}」？删除不可恢复`)) return
+  if (!confirm(t('views.white.deleteConfirm', { name: cmpVideo.value.split('/').pop() }))) return
   try {
     await deleteFile(app.current, cmpVideo.value.replace(`projects/${app.current}/`, ''))
-    toast('已删除', 'ok')
+    toast(t('views.white.deleted'), 'ok')
     await loadBasics()   // products 联动刷新，cmpVideo watch 会自动换到剩余最新
   } catch (e) {
-    toast(e instanceof Error ? e.message : '删除失败', 'err')
+    toast(e instanceof Error ? e.message : t('common.deleteFailed'), 'err')
   }
 }
 
@@ -280,22 +281,22 @@ useBoardSelection(storyboard, boards, 'white')
 <template>
   <div class="page">
     <header class="mb-6">
-      <h1 class="grad-text text-2xl font-black">① 辅助·白模</h1>
-      <p class="mt-1 text-xs text-slate-500">按分镜 JSON 渲染指定镜头区间的白模视频（锁机位/走位/景别/节奏，不做美术）</p>
+      <h1 class="grad-text text-2xl font-black">{{ $t('nav.white') }}</h1>
+      <p class="mt-1 text-xs text-slate-500">{{ $t('views.white.lead') }}</p>
     </header>
 
     <!-- 参数条 -->
     <div class="glass mb-5 flex flex-wrap items-end gap-3 p-4">
       <label class="min-w-64 text-xs text-slate-400">
-        分镜 JSON（分镜/）
-        <StyledSelect v-model="storyboard" class="mt-1" :options="boards" :storage-key="`wb.${app.current}.white.board`" placeholder="— 选择分镜 —" />
+        {{ $t('views.white.boardLabel') }}
+        <StyledSelect v-model="storyboard" class="mt-1" :options="boards" :storage-key="`wb.${app.current}.white.board`" :placeholder="$t('views.white.pickBoard')" />
       </label>
       <label class="w-36 text-xs text-slate-400">
-        镜头区间
+        {{ $t('views.white.range') }}
         <input v-model="shots" class="input mt-1 tabular-nums" placeholder="S3-S8" />
       </label>
       <label class="w-44 text-xs text-slate-400">
-        引擎
+        {{ $t('views.white.engineLabel') }}
         <StyledSelect
           v-model="engine"
           class="mt-1"
@@ -306,47 +307,47 @@ useBoardSelection(storyboard, boards, 'white')
       </label>
       <button class="btn" :disabled="running || !storyboard" @click="run">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.cube" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        {{ running ? '渲染中…' : '渲染白模' }}
+        {{ running ? $t('views.white.rendering') : $t('views.white.render') }}
       </button>
       <button
         class="btn btn-ghost"
         :disabled="exporting || !storyboard"
-        title="逐镜导出干净预演帧+表演提示词+manifest（无字幕HUD，供图生视频模型当参考输入）"
+        :title="$t('views.white.exportTitle')"
         @click="doExportPreviz"
       >
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        {{ exporting ? '导出中…' : '导出预演包' }}
+        {{ exporting ? $t('views.white.exporting') : $t('views.white.export') }}
       </button>
     </div>
 
     <!-- 从拉片解构生成分镜 -->
     <div v-if="app.current" class="glass mb-5 flex flex-wrap items-end gap-3 p-4">
       <div class="mr-auto">
-        <p class="text-xs font-bold text-slate-300">没有分镜？从拉片结构一键生成</p>
-        <p class="mt-0.5 text-xs-plus text-slate-500">把解构镜头表翻译成白模引擎契约：景别→机位、台词→镜内字幕（取 AI 归属后的真实人名）</p>
+        <p class="text-xs font-bold text-slate-300">{{ $t('views.white.noBoard') }}</p>
+        <p class="mt-0.5 text-xs-plus text-slate-500">{{ $t('views.white.noBoardHint') }}</p>
       </div>
       <label class="min-w-56 text-xs text-slate-400">
-        拉片版本
-        <StyledSelect v-model="analysis" class="mt-1" :options="analyses.map((a) => a.name)" :storage-key="`wb.${app.current}.white.analysis`" placeholder="— 选择解构版本 —" />
+        {{ $t('views.white.analysisVersion') }}
+        <StyledSelect v-model="analysis" class="mt-1" :options="analyses.map((a) => a.name)" :storage-key="`wb.${app.current}.white.analysis`" :placeholder="$t('views.white.pickVersion')" />
       </label>
       <label class="w-44 text-xs text-slate-400">
-        人物姿态
+        {{ $t('views.white.poseLabel') }}
         <StyledSelect v-model="pose" class="mt-1" :options="['stand', 'seated']" :labels="POSE_LABELS" :storage-key="`wb.${app.current}.white.pose`" />
       </label>
       <button class="btn btn-ghost" :disabled="converting || !analyses.length" @click="genFromAnalysis">
-        {{ converting ? '生成中…' : '从解构生成分镜' }}
+        {{ converting ? $t('common.generating') : $t('views.white.genFromAnalysis') }}
       </button>
     </div>
 
-    <EmptyState v-if="!app.current" title="请先在左侧选择项目" />
+    <EmptyState v-if="!app.current" :title="$t('common.pickProjectFirst')" />
 
     <!-- 分镜内容可视化 -->
     <section v-if="app.current && storyboard" class="mb-5">
-      <div v-if="boardLoading" class="glass p-10 text-center text-sm text-slate-500">读取分镜中…</div>
+      <div v-if="boardLoading" class="glass p-10 text-center text-sm text-slate-500">{{ $t('views.white.loadingBoard') }}</div>
       <template v-else-if="board">
         <div class="mb-2 flex flex-wrap items-center gap-3">
           <h3 class="text-xs font-bold text-slate-500">
-            分镜内容 · {{ board.title || storyboard }} — {{ boardShots.length }} 镜 · 共 {{ fmtT(boardDur) }}
+            {{ $t('views.white.boardInfo', { title: board.title || storyboard, n: boardShots.length, dur: fmtT(boardDur) }) }}
           </h3>
           <div class="flex flex-wrap items-center gap-1.5">
             <span
@@ -357,7 +358,7 @@ useBoardSelection(storyboard, boards, 'white')
               <i class="h-2 w-2 rounded-full" :style="{ background: a.color }"></i>{{ a.name }}
             </span>
           </div>
-          <span class="text-2xs text-slate-500">点两个镜头选定渲染区间</span>
+          <span class="text-2xs text-slate-500">{{ $t('views.white.pickRange') }}</span>
         </div>
         <div class="glass max-h-96 space-y-1 overflow-y-auto p-2">
           <button
@@ -379,10 +380,10 @@ useBoardSelection(storyboard, boards, 'white')
                 <span v-for="(L, li) in s.lines.slice(0, 2)" :key="li" class="block truncate text-xs-plus" :style="{ color: actorColor(L.speaker) }">
                   【{{ actorName(L.speaker) || '?' }}】{{ L.line }}
                 </span>
-                <span v-if="s.lines.length > 2" class="block text-2xs text-slate-500">…共 {{ s.lines.length }} 条台词</span>
+                <span v-if="s.lines.length > 2" class="block text-2xs text-slate-500">{{ $t('views.white.linesN', { n: s.lines.length }) }}</span>
               </span>
               <span v-else-if="s.line" class="block truncate text-xs-plus text-slate-300">{{ s.line }}</span>
-              <span v-if="s.action" class="mt-0.5 block truncate text-2xs text-slate-500">动作：{{ s.action }}</span>
+              <span v-if="s.action" class="mt-0.5 block truncate text-2xs text-slate-500">{{ $t('views.white.action', { text: s.action }) }}</span>
             </span>
             <span class="shrink-0 text-2xs text-slate-500">{{ s.move || '' }}</span>
           </button>
@@ -394,7 +395,7 @@ useBoardSelection(storyboard, boards, 'white')
     <section v-if="app.current && products.length" class="glass mb-5 p-4">
       <h3 class="mb-3 flex items-center gap-2 text-xs font-bold text-slate-400">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2"><path :d="icons.film" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        原片 vs 白模（播放/暂停/拖动双向联动）
+        {{ $t('views.white.compare') }}
       </h3>
       <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
         <div class="overflow-hidden rounded-xl border border-line-soft bg-black/40">
@@ -409,9 +410,9 @@ useBoardSelection(storyboard, boards, 'white')
             @seeked="syncFrom('l')"
           ></video>
           <div class="flex items-center gap-2 px-3 py-2">
-            <span class="rounded-full bg-amber-400/10 px-2 py-0.5 text-2xs font-bold text-amber-300">原片</span>
+            <span class="rounded-full bg-amber-400/10 px-2 py-0.5 text-2xs font-bold text-amber-300">{{ $t('views.white.original') }}</span>
             <span class="min-w-0 flex-1 truncate text-xs-plus text-slate-400" :title="srcVideo">
-              {{ srcVideo ? srcVideo.split('/').pop() : '该项目 拉片素材/ 下没有视频' }}
+              {{ srcVideo ? srcVideo.split('/').pop() : $t('views.white.noMaterial') }}
             </span>
             <UploadButton @uploaded="loadBasics" />
           </div>
@@ -428,7 +429,7 @@ useBoardSelection(storyboard, boards, 'white')
             @seeked="syncFrom('r')"
           ></video>
           <div class="flex items-center gap-2 px-3 py-2">
-            <span class="rounded-full bg-sky-400/10 px-2 py-0.5 text-2xs font-bold text-sky-300">白模</span>
+            <span class="rounded-full bg-sky-400/10 px-2 py-0.5 text-2xs font-bold text-sky-300">{{ $t('views.white.greybox') }}</span>
             <StyledSelect
               v-if="cmpOptions.length > 1"
               v-model="cmpVideo"
@@ -439,11 +440,11 @@ useBoardSelection(storyboard, boards, 'white')
             <span v-else class="min-w-0 flex-1 truncate text-xs-plus text-slate-400" :title="cmpVideo">{{ cmpVideo.split('/').pop() }}</span>
             <a class="btn btn-ghost btn-sm shrink-0" :href="mediaUrl(cmpVideo)" :download="cmpVideo.split('/').pop()">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.download" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              下载
+              {{ $t('views.white.download') }}
             </a>
             <button
               class="btn btn-danger btn-sm shrink-0"
-              :title="`删除当前对比白模 ${cmpVideo.split('/').pop()}`"
+              :title="$t('views.white.deleteCmp', { name: cmpVideo.split('/').pop() })"
               @click="delCmp"
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.trash" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -455,11 +456,11 @@ useBoardSelection(storyboard, boards, 'white')
 
     <!-- 产物 -->
     <section v-if="app.current">
-      <h3 class="mb-2 text-xs font-bold text-slate-500">白模产物（白模/*.mp4）</h3>
+      <h3 class="mb-2 text-xs font-bold text-slate-500">{{ $t('views.white.products') }}</h3>
       <div v-if="!products.length" class="glass p-12 text-center">
         <svg class="mx-auto mb-3 opacity-40" width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="1.5"><path :d="icons.cube" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <p class="text-sm text-slate-300">该项目还没有白模视频</p>
-        <p class="mt-2 text-xs text-slate-500">没有分镜 JSON？先用上方「从解构生成分镜」把拉片版本转成白模分镜，再选择区间渲染</p>
+        <p class="text-sm text-slate-300">{{ $t('views.white.noProducts') }}</p>
+        <p class="mt-2 text-xs text-slate-500">{{ $t('views.white.noJson') }}</p>
       </div>
       <div v-else class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <div v-for="p in products" :key="p.path" class="glass glass-hover group relative overflow-hidden" :style="{ '--glow': 'rgba(56,189,248,0.35)' }">

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../i18n'
 import { useBoardSelection } from '../utils/useBoardSelection'
 // -*- coding: utf-8 -*-
 /** ② 辅助·Blender：选分镜 JSON → 生成 Blender 构建脚本 → 发 Blender MCP 构建存盘 .blend；产物卡片（打开/CLI 渲染/代码查看）。 */
@@ -26,7 +27,7 @@ watch([boards, storyboard], () => {
 /** Blender MCP 未连时的统一提示。 */
 function mcpToast(msg: string) {
   if (/MCP|9876/i.test(msg)) {
-    toast('Blender MCP(127.0.0.1:9876) 未连接，请先启动 Blender', 'err', 4000)
+    toast(t('views.white3d.mcpOffline'), 'err', 4000)
   } else {
     toast(msg, 'err', 4000)
   }
@@ -35,19 +36,19 @@ function mcpToast(msg: string) {
 /** 删除当前对比选中的 3D 渲染视频。 */
 async function delCmp() {
   if (!app.current || !cmpVideo.value) return
-  if (!confirm(`确定删除「${cmpVideo.value.split('/').pop()}」？删除不可恢复`)) return
+  if (!confirm(t('views.white.deleteConfirm', { name: cmpVideo.value.split('/').pop() }))) return
   try {
     await deleteFile(app.current, cmpVideo.value.replace(`projects/${app.current}/`, ''))
-    toast('已删除', 'ok')
+    toast(t('views.white.deleted'), 'ok')
     await loadBasics()
   } catch (e) {
-    toast(e instanceof Error ? e.message : '删除失败', 'err')
+    toast(e instanceof Error ? e.message : t('common.deleteFailed'), 'err')
   }
 }
 
 async function generate() {
   if (!app.current || !storyboard.value) {
-    toast('请先选择分镜 JSON', 'err')
+    toast(t('views.white.needBoard'), 'err')
     return
   }
   phase.value = 'genscript'
@@ -59,25 +60,25 @@ async function generate() {
       genScript.value = r.gen_script
       phase.value = 'build'
       const b = await runGeneric({ step: 'blender_build', args: [r.gen_script] })
-      if (!b.id) throw new Error(b.err || '构建任务未启动')
-      const j = await trackJob(b.id, `Blender 构建 ${storyboard.value}`)
-      if (j.success) { toast('Blender 构建完成（.blend 已存盘）', 'ok'); await loadBasics() }
-      else mcpToast(j.err || 'Blender 构建失败')
+      if (!b.id) throw new Error(b.err || t('views.white3d.buildNotStarted'))
+      const j = await trackJob(b.id, t('views.white3d.buildJob', { name: storyboard.value }))
+      if (j.success) { toast(t('views.white3d.buildDoneSaved'), 'ok'); await loadBasics() }
+      else mcpToast(j.err || t('views.white3d.buildFailed'))
       return
     }
     // 契约形态 B（当前 server.py）：一步合并任务 {ok, id}（生成脚本 + 发 MCP）
     if (r.ok && r.id) {
       phase.value = 'build'
-      const j = await trackJob(r.id, `3D 白模 ${storyboard.value}`)
+      const j = await trackJob(r.id, t('views.white3d.sceneJob', { name: storyboard.value }))
       const m = (j.out || '').match(/已生成脚本[:：]\s*(.+)/)
       if (m) genScript.value = m[1].trim()
-      if (j.success) { toast('生成脚本 + Blender 构建完成', 'ok'); await loadBasics() }
-      else mcpToast(j.err || '任务失败')
+      if (j.success) { toast(t('views.white3d.scriptBuildDone'), 'ok'); await loadBasics() }
+      else mcpToast(j.err || t('views.white3d.jobFailed'))
       return
     }
-    throw new Error(r.err || '生成脚本失败')
+    throw new Error(r.err || t('views.white3d.scriptFailed'))
   } catch (e) {
-    const msg = e instanceof ApiError || e instanceof Error ? e.message : '未知错误'
+    const msg = e instanceof ApiError || e instanceof Error ? e.message : t('views.white3d.unknownError')
     mcpToast(msg)
   } finally {
     phase.value = 'idle'
@@ -86,18 +87,18 @@ async function generate() {
 
 async function genEnv() {
   if (!app.current || !storyboard.value) {
-    toast('请先选择分镜 JSON', 'err')
+    toast(t('views.white.needBoard'), 'err')
     return
   }
   envLoading.value = true
   try {
     const r = await runGeneric({ step: 'scene_env', args: [`projects/${app.current}/分镜/${storyboard.value}`] })
-    if (!r.id) throw new Error(r.err || '任务未启动')
-    const j = await trackJob(r.id, `LLM 场景陈设 ${storyboard.value}`)
-    if (j.success) { toast('场景陈设已生成分镜 env（重新生成构建脚本即可带上）', 'ok', 5000) }
-    else throw new Error(j.err || '场景生成失败')
+    if (!r.id) throw new Error(r.err || t('views.depth.notStarted'))
+    const j = await trackJob(r.id, t('views.white3d.envJob', { name: storyboard.value }))
+    if (j.success) { toast(t('views.white3d.envDone'), 'ok', 5000) }
+    else throw new Error(j.err || t('views.white3d.envFailed'))
   } catch (e) {
-    toast(e instanceof Error ? e.message : '场景生成失败', 'err')
+    toast(e instanceof Error ? e.message : t('views.white3d.envFailed'), 'err')
   } finally {
     envLoading.value = false
   }
@@ -175,9 +176,9 @@ async function openLocal(p: Prod) {
   opening.value[p.path] = true
   try {
     const r = await openBlend(p.path)
-    toast(`已在本机打开 ${r.opened || p.file}`, 'ok')
+    toast(t('views.white3d.opened', { name: r.opened || p.file }), 'ok')
   } catch (e) {
-    toast(e instanceof Error ? e.message : '打开失败', 'err')
+    toast(e instanceof Error ? e.message : t('views.white3d.openFailed'), 'err')
   } finally {
     opening.value[p.path] = false
   }
@@ -187,13 +188,13 @@ async function renderCli(p: Prod) {
   rendering.value[p.path] = true
   try {
     const r = await runGeneric({ step: 'blender_render', args: [p.path] })
-    if (!r.id) throw new Error(r.err || '渲染任务未启动')
-    toast(`CLI 渲染任务 #${r.id} 已启动`, 'ok')
-    const j = await trackJob(r.id, `CLI 渲染 ${p.file}`)
-    if (j.success) { toast('渲染完成', 'ok'); await loadBasics() }
-    else toast(j.err || '渲染失败', 'err')
+    if (!r.id) throw new Error(r.err || t('views.white3d.renderNotStarted'))
+    toast(t('views.white3d.renderStarted', { id: r.id }), 'ok')
+    const j = await trackJob(r.id, t('views.white3d.renderJob', { name: p.file }))
+    if (j.success) { toast(t('views.white3d.renderDone'), 'ok'); await loadBasics() }
+    else toast(j.err || t('views.white3d.renderFailed'), 'err')
   } catch (e) {
-    toast(e instanceof Error ? e.message : '启动失败', 'err')
+    toast(e instanceof Error ? e.message : t('common.startFailed'), 'err')
   } finally {
     rendering.value[p.path] = false
   }
@@ -208,7 +209,7 @@ async function viewCode(p: Prod) {
   try {
     codeView.value = { path: p.path, text: await fetchText(p.path) }
   } catch {
-    toast('代码读取失败', 'err')
+    toast(t('views.white3d.codeFailed'), 'err')
     codeView.value = null
   } finally {
     codeLoading.value = false
@@ -218,13 +219,13 @@ async function viewCode(p: Prod) {
 async function resendBuild(p: Prod) {
   try {
     const r = await runGeneric({ step: 'blender_build', args: [p.path] })
-    if (!r.id) throw new Error(r.err || '构建任务未启动')
-    toast(`已发送 ${p.file} 到 Blender MCP`, 'ok')
-    const j = await trackJob(r.id, `Blender 构建 ${p.file}`)
-    if (j.success) toast('Blender 构建完成', 'ok')
-    else mcpToast(j.err || 'Blender 构建失败')
+    if (!r.id) throw new Error(r.err || t('views.white3d.buildNotStarted'))
+    toast(t('views.white3d.sent', { name: p.file }), 'ok')
+    const j = await trackJob(r.id, t('views.white3d.buildJob', { name: p.file }))
+    if (j.success) toast(t('views.white3d.buildDone'), 'ok')
+    else mcpToast(j.err || t('views.white3d.buildFailed'))
   } catch (e) {
-    mcpToast(e instanceof Error ? e.message : '发送失败')
+    mcpToast(e instanceof Error ? e.message : t('views.white3d.sendFailed'))
   }
 }
 
@@ -239,40 +240,40 @@ useBoardSelection(storyboard, boards, 'white3d')
 <template>
   <div class="page">
     <header class="mb-6">
-      <h1 class="grad-text text-2xl font-black">② 辅助·Blender</h1>
+      <h1 class="grad-text text-2xl font-black">{{ $t('nav.white3d') }}</h1>
       <p class="mt-1 text-xs text-slate-500">
-        分镜 JSON → 生成 Blender 构建脚本 → 经 Blender MCP(127.0.0.1:9876) 构建并自动存盘 .blend
+        {{ $t('views.white3d.lead') }}
       </p>
       <p class="mt-1 rounded-lg bg-cyan-400/10 px-3 py-1.5 text-xs-plus text-cyan-300">
-        仅支持 dialogue 契约（显式 pos/look 站位）的分镜；previs 自动机位模式不支持 3D。
+        {{ $t('views.white3d.dialogueOnly') }}
       </p>
     </header>
 
     <!-- 参数条 -->
     <div class="glass mb-5 flex flex-wrap items-end gap-3 p-4">
       <label class="min-w-64 text-xs text-slate-400">
-        分镜 JSON（分镜/）
-        <StyledSelect v-model="storyboard" class="mt-1" :options="boards" :storage-key="`wb.${app.current}.white3d.board`" placeholder="— 选择分镜 —" />
+        {{ $t('views.white.boardLabel') }}
+        <StyledSelect v-model="storyboard" class="mt-1" :options="boards" :storage-key="`wb.${app.current}.white3d.board`" :placeholder="$t('views.white.pickBoard')" />
       </label>
       <button class="btn" :disabled="phase !== 'idle' || !storyboard" @click="generate">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path :d="icons.wand" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
-        {{ phase === 'genscript' ? '生成脚本中…' : phase === 'build' ? '发送 Blender 构建中…' : '✨ 生成 3D 场景' }}
+        {{ phase === 'genscript' ? $t('views.white3d.genScript') : phase === 'build' ? $t('views.white3d.sending') : $t('views.white3d.gen3d') }}
       </button>
       <button class="btn btn-ghost" :disabled="envLoading || !storyboard"
-        title="LLM 读场景描述生成陈设灰模（桌案/帷幔/大帐/拒马…），写回分镜 env，重新生成构建脚本即可带上"
+        :title="$t('views.white3d.envTitle')"
         @click="genEnv">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4L12 3zM19 15l.9 2.3L22 18l-2.1.7L19 21l-.9-2.3L16 18l2.1-.7L19 15z" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
-        {{ envLoading ? 'AI 布置场景中…' : 'AI 生成场景陈设' }}
+        {{ envLoading ? $t('views.white3d.envRunning') : $t('views.white3d.envBtn') }}
       </button>
       <div v-if="phase !== 'idle'" class="flex items-center gap-2 text-xs text-cyan-300">
         <svg class="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
           <path d="M12 3a9 9 0 1 0 9 9" stroke-linecap="round" />
         </svg>
-        {{ phase === 'genscript' ? '① 生成脚本中 → ② 发送 Blender 构建中' : '② 发送 Blender 构建中（MCP 执行 + 存盘 .blend）' }}
+        {{ phase === 'genscript' ? $t('views.white3d.stage1') : $t('views.white3d.stage2') }}
       </div>
     </div>
 
@@ -281,7 +282,7 @@ useBoardSelection(storyboard, boards, 'white3d')
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#22d3ee" stroke-width="2">
         <path :d="icons.terminal" stroke-linecap="round" stroke-linejoin="round" />
       </svg>
-      <span class="text-slate-500">生成脚本：</span>
+      <span class="text-slate-500">{{ $t('views.white3d.scriptLabel') }}</span>
       <code class="truncate text-cyan-300" :title="genScript">{{ genScript }}</code>
     </div>
 
@@ -291,7 +292,7 @@ useBoardSelection(storyboard, boards, 'white3d')
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#22d3ee" stroke-width="2">
           <path :d="icons.film" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
-        原片 vs 3D 白模（播放/暂停/拖动双向联动）
+        {{ $t('views.white3d.compare') }}
       </h3>
       <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
         <div class="overflow-hidden rounded-xl border border-line-soft bg-black/40">
@@ -306,9 +307,9 @@ useBoardSelection(storyboard, boards, 'white3d')
             @seeked="syncFrom('l')"
           ></video>
           <div class="flex items-center gap-2 px-3 py-2">
-            <span class="rounded-full bg-amber-400/10 px-2 py-0.5 text-2xs font-bold text-amber-300">原片</span>
+            <span class="rounded-full bg-amber-400/10 px-2 py-0.5 text-2xs font-bold text-amber-300">{{ $t('views.white.original') }}</span>
             <span class="min-w-0 flex-1 truncate text-xs-plus text-slate-400" :title="srcVideo">
-              {{ srcVideo ? srcVideo.split('/').pop() : '该项目 拉片素材/ 下没有视频' }}
+              {{ srcVideo ? srcVideo.split('/').pop() : $t('views.white.noMaterial') }}
             </span>
           </div>
         </div>
@@ -324,7 +325,7 @@ useBoardSelection(storyboard, boards, 'white3d')
             @seeked="syncFrom('r')"
           ></video>
           <div class="flex items-center gap-2 px-3 py-2">
-            <span class="rounded-full bg-cyan-400/10 px-2 py-0.5 text-2xs font-bold text-cyan-300">3D 白模</span>
+            <span class="rounded-full bg-cyan-400/10 px-2 py-0.5 text-2xs font-bold text-cyan-300">{{ $t('views.white3d.grey3d') }}</span>
             <StyledSelect
               v-if="cmpOptions.length > 1"
               v-model="cmpVideo"
@@ -335,7 +336,7 @@ useBoardSelection(storyboard, boards, 'white3d')
             <span v-else class="min-w-0 flex-1 truncate text-xs-plus text-slate-400" :title="cmpVideo">{{ cmpVideo.split('/').pop() }}</span>
             <button
               class="btn btn-danger btn-sm shrink-0"
-              :title="`删除当前 3D 渲染视频 ${cmpVideo.split('/').pop()}`"
+              :title="$t('views.white3d.deleteCmp', { name: cmpVideo.split('/').pop() })"
               @click="delCmp"
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.trash" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -345,26 +346,26 @@ useBoardSelection(storyboard, boards, 'white3d')
       </div>
     </section>
 
-    <EmptyState v-if="!app.current" title="请先在左侧选择项目" />
+    <EmptyState v-if="!app.current" :title="$t('common.pickProjectFirst')" />
 
     <!-- 产物区 -->
     <section v-else>
-      <h3 class="mb-2 text-xs font-bold text-slate-500">3D 产物（白模3D/ 与项目根目录）</h3>
+      <h3 class="mb-2 text-xs font-bold text-slate-500">{{ $t('views.white3d.products') }}</h3>
       <div v-if="!hasProducts" class="glass p-12 text-center">
         <svg class="mx-auto mb-3 opacity-40" width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#22d3ee" stroke-width="1.5">
           <path :d="icons.box3d" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
-        <p class="text-sm text-slate-300">该项目还没有 3D 产物</p>
+        <p class="text-sm text-slate-300">{{ $t('views.white3d.noProducts') }}</p>
         <p class="mt-2 text-xs text-slate-500">
-          在上方选择 dialogue 契约分镜 JSON 后点「✨ 生成 3D 场景」<br />
-          需先启动 Blender 并开启 MCP（127.0.0.1:9876）
+          {{ $t('views.white3d.noProductsHint') }}<br />
+          {{ $t('views.white3d.needMcp') }}
         </p>
       </div>
 
       <div v-else class="space-y-6">
         <!-- .blend -->
         <div v-if="blends.length">
-          <h4 class="mb-2 text-2xs font-bold text-cyan-400">BLEND 场景（{{ blends.length }}）</h4>
+          <h4 class="mb-2 text-2xs font-bold text-cyan-400">{{ $t('views.white3d.blends', { n: blends.length }) }}</h4>
           <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <article
               v-for="p in blends"
@@ -385,7 +386,7 @@ useBoardSelection(storyboard, boards, 'white3d')
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path :d="icons.play" stroke-linejoin="round" />
                   </svg>
-                  {{ opening[p.path] ? '打开中…' : '本机打开' }}
+                  {{ opening[p.path] ? $t('views.white3d.opening') : $t('views.white3d.openLocal') }}
                 </button>
                 <button class="btn btn-ghost btn-sm flex-1 justify-center" :disabled="rendering[p.path]" @click="renderCli(p)">
                   <svg v-if="rendering[p.path]" class="animate-spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -394,7 +395,7 @@ useBoardSelection(storyboard, boards, 'white3d')
                   <svg v-else width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path :d="icons.film" stroke-linecap="round" stroke-linejoin="round" />
                   </svg>
-                  {{ rendering[p.path] ? '渲染中…' : 'CLI 渲染' }}
+                  {{ rendering[p.path] ? $t('views.white.rendering') : $t('views.white3d.cliRender') }}
                 </button>
               </div>
             </article>
@@ -403,7 +404,7 @@ useBoardSelection(storyboard, boards, 'white3d')
 
         <!-- gen_*.py -->
         <div v-if="scripts.length">
-          <h4 class="mb-2 text-2xs font-bold text-cyan-400">构建脚本（{{ scripts.length }}）</h4>
+          <h4 class="mb-2 text-2xs font-bold text-cyan-400">{{ $t('views.white3d.scripts', { n: scripts.length }) }}</h4>
           <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <article
               v-for="p in scripts"
@@ -421,11 +422,11 @@ useBoardSelection(storyboard, boards, 'white3d')
                 <span class="min-w-0 flex-1 truncate text-xs font-bold text-slate-200" :title="p.path">{{ p.file }}</span>
               </div>
               <div class="mt-2 flex items-center justify-between gap-2">
-                <span class="text-2xs text-slate-500">点击查看代码</span>
+                <span class="text-2xs text-slate-500">{{ $t('views.white3d.viewCode') }}</span>
                 <button
                   class="btn btn-ghost btn-sm"
                   @click.stop="resendBuild(p)"
-                >发送到 Blender</button>
+                >{{ $t('views.white3d.sendBlender') }}</button>
               </div>
             </article>
           </div>
@@ -452,7 +453,7 @@ useBoardSelection(storyboard, boards, 'white3d')
               </svg>
             </button>
           </div>
-          <pre class="log-tail flex-1 overflow-auto rounded-lg bg-black/40 p-3">{{ codeLoading ? '读取中…' : codeView.text }}</pre>
+          <pre class="log-tail flex-1 overflow-auto rounded-lg bg-black/40 p-3">{{ codeLoading ? $t('views.white3d.reading') : codeView.text }}</pre>
         </div>
       </div>
     </Teleport>
