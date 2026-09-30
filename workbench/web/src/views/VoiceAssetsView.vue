@@ -5,6 +5,7 @@ import { getJSON, mediaUrl } from '../api'
 import { trackJob } from '../stores/jobs'
 import { studioPost, submitStudioJob } from '../utils/productionStudio'
 import { useBoardSelection } from '../utils/useBoardSelection'
+import { t, te } from '../i18n'
 
 interface State {id: string; label: string; image?: string}
 interface Variant {voice_asset_id: string; revision: number; name: string; state?: string}
@@ -14,7 +15,7 @@ interface Catalog {voice_id: string; voice_name?: string; description?: string[]
 
 const actors = ref<Actor[]>([]), voices = ref<Voice[]>([]), catalog = ref<Catalog[]>([])
 const actorId = ref(''), search = ref('')
-const description = ref(''), preview = ref('你好，这是角色的声音，请听听是否符合他的性格。'), voiceName = ref('')
+const description = ref(''), preview = ref(t('views.voices.previewText')), voiceName = ref('')
 const busy = ref(false), error = ref(''), board = ref('')
 const stateSel = ref<Record<string, string>>({})
 const fileInput = ref<HTMLInputElement | null>(null), uploading = ref(false)
@@ -29,7 +30,7 @@ function syncStateSel() {
 const boards = computed(() => projectFiles('分镜', /\.json$/))
 useBoardSelection(board, boards, 'voices')
 watch(board, name => { if (app.current && name) localStorage.setItem(`wb.${app.current}.voices.board`, name) })
-const ORIGIN: Record<string, string> = {voice_sample: 'TTS 试听', voice_design: 'AI 创作', upload: '本地上传', voice_clone: '本地复刻'}
+const originLabel = (o?: string) => o && te('views.voices.origin.' + o) ? t('views.voices.origin.' + o) : t('views.voices.local')
 interface VendorLite {id: string; label?: string; enabled?: boolean; models?: Record<string, string>; endpoints?: Record<string, string>}
 const speechVendors = ref<VendorLite[]>([]), speechVendor = ref('minimax')
 watch(speechVendor, v => { if (v && app.current) localStorage.setItem(`wb.${app.current}.voices.speechVendor`, v) })
@@ -63,22 +64,22 @@ async function submit(action: string, extra: Record<string, unknown> = {}, recov
   try {
     const r = await submitStudioJob(body, recover)
     if (r.id) {
-      const result = await trackJob(r.id, '音色素材')
-      if (!result.success) throw new Error(result.err || '音色任务失败，请查看任务日志')
+      const result = await trackJob(r.id, t('views.voices.jobLabel'))
+      if (!result.success) throw new Error(result.err || t('views.voices.jobFailed'))
     }
     if (app.current === project) await load()
   } catch (e) { error.value = String(e) } finally { busy.value = false }
 }
 async function bindGlobal(v: Voice) {
   if (!actor.value) return
-  try { await studioPost('voice-bind', {project: app.current, character_id: actorId.value, voice_asset_id: v.id, revision: v.revision}); await load(); toast(`${v.name} 已绑定为 ${actor.value.name} 的全剧默认音色`, 'ok') }
+  try { await studioPost('voice-bind', {project: app.current, character_id: actorId.value, voice_asset_id: v.id, revision: v.revision}); await load(); toast(t('views.voices.boundGlobal', { voice: v.name, actor: actor.value.name }), 'ok') }
   catch (e) { error.value = String(e) }
 }
 async function bindState(stateId: string) {
   const voiceId = stateSel.value[stateId] || ''
   try {
     await studioPost('voice-bind', {project: app.current, character_id: actorId.value, state: stateId, voice_asset_id: voiceId})
-    await load(); toast(voiceId ? '状态音色已绑定' : '已恢复跟随全剧默认', 'ok')
+    await load(); toast(voiceId ? t('views.voices.stateBound') : t('views.voices.followDefault'), 'ok')
   } catch (e) { error.value = String(e) }
 }
 async function uploadVoice(f: Event) {
@@ -90,8 +91,8 @@ async function uploadVoice(f: Event) {
     const r = await fetch(`/api/voice/upload?project=${encodeURIComponent(project)}&name=${encodeURIComponent(file.name)}`,
       {method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body: file})
     const data = await r.json()
-    if (!r.ok) throw new Error(data.err || '上传失败')
-    toast(`音色「${data.voice.name}」已入库`, 'ok'); await load()
+    if (!r.ok) throw new Error(data.err || t('common.uploadFailed'))
+    toast(t('views.voices.uploaded', { name: data.voice.name }), 'ok'); await load()
   } catch (e) { error.value = String(e) } finally { uploading.value = false }
 }
 function stateVoiceName(stateId: string) {
@@ -104,90 +105,90 @@ watch(() => app.current, () => { void load(); void loadSpeechVendors() }, {immed
 
 <template>
   <div class="page-wide">
-    <header class="mb-5"><h1 class="grad-text text-2xl font-black">④ 音色绑定</h1><p class="mt-1 text-sm text-slate-400">为角色选择全剧音色，也可为派生状态单独绑定。</p></header>
+    <header class="mb-5"><h1 class="grad-text text-2xl font-black">{{ $t('nav.voices') }}</h1><p class="mt-1 text-sm text-slate-400">{{ $t('views.voices.lead') }}</p></header>
     <p v-if="error" role="alert" class="mb-4 rounded-lg bg-rose-950/50 p-3 text-rose-200">{{ error }}</p>
     <div class="grid items-start gap-5 lg:grid-cols-[230px_minmax(0,1fr)]">
-      <aside class="glass space-y-2 p-3"><h2 class="mb-4 text-sm font-bold">角色与旁白</h2><button v-for="a in actors" :key="a.id" class="block w-full rounded-xl border p-3 text-left" :class="a.id === actorId ? 'border-sky-400/50 bg-sky-900/20' : 'border-white/10'" @click="actorId = a.id"><b>{{ a.name }}</b><small class="mt-1 block text-slate-300">{{ a.voice_binding ? '已绑定全剧音色' : '待绑定' }}<template v-if="a.states?.length"> · {{ a.states.length }} 状态</template></small></button><p class="text-sm text-slate-400">旁白未绑定音色时不生成配音。</p></aside>
+      <aside class="glass space-y-2 p-3"><h2 class="mb-4 text-sm font-bold">{{ $t('views.voices.actors') }}</h2><button v-for="a in actors" :key="a.id" class="block w-full rounded-xl border p-3 text-left" :class="a.id === actorId ? 'border-sky-400/50 bg-sky-900/20' : 'border-white/10'" @click="actorId = a.id"><b>{{ a.name }}</b><small class="mt-1 block text-slate-300">{{ a.voice_binding ? $t('views.voices.boundGlobalShort') : $t('views.voices.unbound') }}<template v-if="a.states?.length"> · {{ $t('views.voices.statesN', { n: a.states.length }) }}</template></small></button><p class="text-sm text-slate-400">{{ $t('views.voices.narrationNote') }}</p></aside>
       <main class="space-y-5">
         <div class="grid items-start gap-5 xl:grid-cols-2">
           <section class="glass space-y-3 p-4">
             <div class="flex flex-wrap items-center gap-2">
-              <h2 class="font-bold text-sky-200">云端音色库</h2>
-              <span class="rounded-md border border-white/15 bg-white/5 px-2 py-1 text-xs text-slate-300" title="音色库 / 试听 / 创作 / 复刻当前仅支持 MiniMax；台词配音可在底部选择其他语音厂商">MiniMax</span>
-              <button class="btn btn-sm" :disabled="busy" @click="submit('voice_catalog')">{{ catalog.length ? '重新拉取' : '拉取默认音色' }}</button>
+              <h2 class="font-bold text-sky-200">{{ $t('views.voices.cloudLib') }}</h2>
+              <span class="rounded-md border border-white/15 bg-white/5 px-2 py-1 text-xs text-slate-300" :title="$t('views.voices.minimaxTitle')">MiniMax</span>
+              <button class="btn btn-sm" :disabled="busy" @click="submit('voice_catalog')">{{ catalog.length ? $t('views.voices.refetch') : $t('views.voices.fetchDefault') }}</button>
             </div>
-            <p class="text-sm text-slate-400">云端列表没有试听音频。点「生成试听并保存」调用一次语音合成，保存后可重复播放。</p>
-            <div class="flex gap-2"><input v-model="search" class="voice-input" placeholder="搜索名称 / 描述 / ID" /><button class="btn btn-sm btn-ghost shrink-0" :disabled="busy" @click="submit('recover', {}, true)">接管未确认请求</button></div>
+            <p class="text-sm text-slate-400">{{ $t('views.voices.cloudNote') }}</p>
+            <div class="flex gap-2"><input v-model="search" class="voice-input" :placeholder="$t('views.voices.searchPh')" /><button class="btn btn-sm btn-ghost shrink-0" :disabled="busy" @click="submit('recover', {}, true)">{{ $t('views.voices.recover') }}</button></div>
             <div class="max-h-[430px] space-y-2 overflow-auto pr-1">
               <article v-for="v in catalog.filter(c => `${c.voice_name} ${c.voice_id} ${c.description?.join(' ')}`.includes(search))" :key="v.voice_id" class="rounded-lg border border-white/10 p-3">
                 <div class="flex items-center justify-between gap-3">
-                  <div class="min-w-0"><b class="text-sm">{{ v.voice_name || v.voice_id }}</b><p class="truncate text-xs text-slate-400" :title="v.description?.join('；')">{{ v.description?.join('；') }}</p></div>
-                  <button v-if="!v.preview_audio" class="btn btn-sm shrink-0" :disabled="busy" @click="submit('voice_sample', {voice_id: v.voice_id, name: v.voice_name, preview_text: preview})">生成试听并保存</button>
+                  <div class="min-w-0"><b class="text-sm">{{ v.voice_name || v.voice_id }}</b><p class="truncate text-xs text-slate-400" :title="v.description?.join($t('common.semiSep'))">{{ v.description?.join($t('common.semiSep')) }}</p></div>
+                  <button v-if="!v.preview_audio" class="btn btn-sm shrink-0" :disabled="busy" @click="submit('voice_sample', {voice_id: v.voice_id, name: v.voice_name, preview_text: preview})">{{ $t('views.voices.genPreview') }}</button>
                 </div>
                 <audio v-if="v.preview_audio" :src="v.preview_audio" controls preload="none" class="mt-2 w-full" />
               </article>
-              <p v-if="!catalog.length" class="text-xs text-slate-500">尚未拉取：点「拉取默认音色」获取 MiniMax 云端音色列表。</p>
+              <p v-if="!catalog.length" class="text-xs text-slate-500">{{ $t('views.voices.notFetched') }}</p>
             </div>
           </section>
           <section class="glass space-y-3 p-4">
             <div class="flex flex-wrap items-center gap-2">
-              <h2 class="font-bold text-sky-200">本地音色库</h2>
+              <h2 class="font-bold text-sky-200">{{ $t('views.voices.localLib') }}</h2>
               <input ref="fileInput" type="file" accept=".mp3,.wav,.m4a,.ogg,.flac" class="hidden" @change="uploadVoice" />
-              <button class="btn btn-sm" :disabled="uploading" @click="fileInput?.click()">{{ uploading ? '上传中…' : '上传音色文件' }}</button>
-              <span class="text-xs text-slate-500">{{ voices.length }} 个</span>
+              <button class="btn btn-sm" :disabled="uploading" @click="fileInput?.click()">{{ uploading ? $t('common.uploading') : $t('views.voices.uploadFile') }}</button>
+              <span class="text-xs text-slate-500">{{ $t('views.voices.count', { n: voices.length }) }}</span>
             </div>
             <div class="max-h-[520px] space-y-3 overflow-auto pr-1">
               <article v-for="v in voices" :key="v.id" class="rounded-xl border border-white/10 p-3">
                 <div class="flex items-center gap-2"><b class="text-sm">{{ v.name }} · r{{ v.revision }}</b>
-                  <span class="rounded px-1.5 py-0.5 text-[10px]" :class="v.origin === 'upload' ? 'bg-emerald-900/60 text-emerald-200' : v.origin === 'voice_design' ? 'bg-violet-900/60 text-violet-200' : 'bg-sky-900/60 text-sky-200'">{{ ORIGIN[v.origin || ''] || '本地' }}</span>
-                  <span v-if="v.tts_verified" class="rounded bg-slate-700/60 px-1.5 py-0.5 text-[10px] text-slate-300">TTS 已验证</span>
+                  <span class="rounded px-1.5 py-0.5 text-[10px]" :class="v.origin === 'upload' ? 'bg-emerald-900/60 text-emerald-200' : v.origin === 'voice_design' ? 'bg-violet-900/60 text-violet-200' : 'bg-sky-900/60 text-sky-200'">{{ originLabel(v.origin) }}</span>
+                  <span v-if="v.tts_verified" class="rounded bg-slate-700/60 px-1.5 py-0.5 text-[10px] text-slate-300">{{ $t('views.voices.ttsVerified') }}</span>
                 </div>
-                <p class="mt-1 text-xs text-slate-500">{{ v.voice_id || '（待正式 TTS 后获得云端 voice_id）' }}</p>
+                <p class="mt-1 text-xs text-slate-500">{{ v.voice_id || $t('views.voices.noVoiceId') }}</p>
                 <p class="truncate text-[11px] text-slate-600" :title="v.sample">{{ v.sample }}</p>
                 <audio :src="url(v.sample)" controls preload="none" class="my-2 w-full" />
                 <div class="flex flex-wrap gap-2">
-                  <button class="btn btn-sm" :disabled="!actor || busy || actor.voice_binding?.voice_asset_id === v.id" @click="bindGlobal(v)">{{ actor?.voice_binding?.voice_asset_id === v.id ? '当前全剧默认' : '设为 ' + (actor?.name || '角色') + ' 全剧默认' }}</button>
-                  <button v-if="!v.voice_id" class="btn btn-sm btn-ghost" :disabled="busy" title="调用 MiniMax 音色复刻：样本需 mp3/m4a/wav、10秒–5分钟、≤20MB" @click="cloneVoice(v)">克隆为云端音色</button>
+                  <button class="btn btn-sm" :disabled="!actor || busy || actor.voice_binding?.voice_asset_id === v.id" @click="bindGlobal(v)">{{ actor?.voice_binding?.voice_asset_id === v.id ? $t('views.voices.isDefault') : $t('views.voices.setDefault', { name: actor?.name || $t('views.voices.character') }) }}</button>
+                  <button v-if="!v.voice_id" class="btn btn-sm btn-ghost" :disabled="busy" :title="$t('views.voices.cloneTitle')" @click="cloneVoice(v)">{{ $t('views.voices.clone') }}</button>
                 </div>
-                <p v-if="v.origin === 'voice_clone'" class="mt-2 text-xs text-amber-300">{{ v.description || '复刻音色 7 天内需正式合成台词，否则云端将删除' }}</p>
-                <p v-if="v.derived_from" class="mt-2 text-xs text-sky-300">派生音色 · {{ actors.find(a => a.id === v.character_id)?.name }}</p>
+                <p v-if="v.origin === 'voice_clone'" class="mt-2 text-xs text-amber-300">{{ v.description || $t('views.voices.cloneNote') }}</p>
+                <p v-if="v.derived_from" class="mt-2 text-xs text-sky-300">{{ $t('views.voices.derived', { name: actors.find(a => a.id === v.character_id)?.name }) }}</p>
               </article>
-              <p v-if="!voices.length" class="text-xs text-slate-500">空库：从左侧云端音色生成试听、上传本地音频，或用下方 AI 音色创作。</p>
+              <p v-if="!voices.length" class="text-xs text-slate-500">{{ $t('views.voices.emptyLib') }}</p>
             </div>
           </section>
         </div>
         <section class="glass space-y-3 p-4">
-          <h2 class="font-bold text-sky-200">分状态音色 <span class="text-sm font-normal text-slate-400">{{ actor?.name || '请选择角色' }}</span></h2>
-          <p v-if="!actor?.states?.length" class="text-xs text-slate-500">该角色暂无派生状态；请到「② 素材提炼」为角色定义状态资产（states），生成状态图后回到这里配音色。</p>
+          <h2 class="font-bold text-sky-200">{{ $t('views.voices.perState') }} <span class="text-sm font-normal text-slate-400">{{ actor?.name || $t('views.voices.pickActor') }}</span></h2>
+          <p v-if="!actor?.states?.length" class="text-xs text-slate-500">{{ $t('views.voices.noStates') }}</p>
           <div v-for="s in actor?.states || []" :key="s.id" class="grid items-center gap-3 rounded-xl border border-white/10 p-3 md:grid-cols-[120px_minmax(0,1fr)_auto]">
             <div class="flex h-[90px] items-center justify-center overflow-hidden rounded-lg border border-white/10 bg-black/30">
               <img v-if="s.image" :src="url(s.image)" class="h-full w-full object-contain" :alt="s.label" />
-              <span v-else class="text-[11px] text-slate-600">暂无状态图</span>
+              <span v-else class="text-[11px] text-slate-600">{{ $t('views.voices.noStateImg') }}</span>
             </div>
             <div class="min-w-0">
               <b class="text-sm">{{ s.label }}</b>
-              <p class="text-xs" :class="stateVoiceName(s.id) ? 'text-emerald-300' : 'text-slate-500'">{{ stateVoiceName(s.id) ? '当前：' + stateVoiceName(s.id) : '跟随全剧默认音色' }}</p>
-              <select v-model="stateSel[s.id]" class="voice-input mt-2"><option value="">（跟随全剧默认）</option><option v-for="v in voices" :key="v.id" :value="v.id">{{ v.name }} · r{{ v.revision }}</option></select>
+              <p class="text-xs" :class="stateVoiceName(s.id) ? 'text-emerald-300' : 'text-slate-500'">{{ stateVoiceName(s.id) ? $t('views.voices.current', { name: stateVoiceName(s.id) }) : $t('views.voices.followingDefault') }}</p>
+              <select v-model="stateSel[s.id]" class="voice-input mt-2"><option value="">{{ $t('views.voices.followOpt') }}</option><option v-for="v in voices" :key="v.id" :value="v.id">{{ v.name }} · r{{ v.revision }}</option></select>
             </div>
-            <button class="btn btn-sm" :disabled="busy" @click="bindState(s.id)">{{ stateSel[s.id] ? '绑定该状态' : '恢复默认' }}</button>
+            <button class="btn btn-sm" :disabled="busy" @click="bindState(s.id)">{{ stateSel[s.id] ? $t('views.voices.bindState') : $t('views.voices.resetDefault') }}</button>
           </div>
         </section>
         <section class="glass space-y-3 p-4">
-          <h2 class="font-bold text-sky-200">AI 音色创作 <span class="text-xs font-normal text-slate-500">按文字描述创作新音色，试听自动保存到本地音色库</span></h2>
+          <h2 class="font-bold text-sky-200">{{ $t('views.voices.design') }} <span class="text-xs font-normal text-slate-500">{{ $t('views.voices.designHint') }}</span></h2>
           <div class="grid gap-3 md:grid-cols-2">
-            <input v-model="voiceName" class="voice-input" placeholder="音色名称" />
-            <input v-model="preview" class="voice-input" placeholder="试听文本" />
+            <input v-model="voiceName" class="voice-input" :placeholder="$t('views.voices.voiceName')" />
+            <input v-model="preview" class="voice-input" :placeholder="$t('views.voices.previewPh')" />
           </div>
-          <textarea v-model="description" class="voice-input" rows="3" placeholder="例如：年轻男性，音色温和，吐字清晰，语速舒缓，略带沙哑"></textarea>
-          <button class="btn" :disabled="busy || !description.trim()" @click="submit('voice_design', {description, name: voiceName, preview_text: preview})">创作音色并保存试听</button>
+          <textarea v-model="description" class="voice-input" rows="3" :placeholder="$t('views.voices.descPh')"></textarea>
+          <button class="btn" :disabled="busy || !description.trim()" @click="submit('voice_design', {description, name: voiceName, preview_text: preview})">{{ $t('views.voices.designBtn') }}</button>
         </section>
         <details class="glass p-4">
-          <summary class="cursor-pointer text-sm font-bold text-slate-300">台词配音（按绑定音色生成本集角色台词）</summary>
+          <summary class="cursor-pointer text-sm font-bold text-slate-300">{{ $t('views.voices.dubbing') }}</summary>
           <div class="mt-3 space-y-3">
-            <label class="block text-xs text-slate-400">语音厂商（MiniMax 用绑定音色；本地 / OpenAI 兼容 TTS 用厂商配置的默认音色）<select v-model="speechVendor" class="voice-input mt-2"><option v-for="v in speechVendors" :key="v.id" :value="v.id">{{ v.label || v.id }}{{ v.id === 'minimax' ? '' : '（OpenAI 兼容）' }}</option></select></label>
-            <label class="block text-xs text-slate-400">本次配音音色<select v-model="speechVoice" class="voice-input mt-2" :disabled="speechVendor !== 'minimax'"><option value="">{{ speechVendor !== 'minimax' ? '厂商默认音色' : '全剧默认音色' }}</option><option v-for="v in actor?.voice_variants || []" :key="v.voice_asset_id" :value="v.voice_asset_id">{{ v.name }}{{ v.state ? '（状态）' : '' }}</option></select></label>
-            <div class="flex flex-wrap gap-2"><select v-model="board" class="voice-input max-w-xs"><option v-for="b in boards" :key="b">{{ b }}</option></select><button class="btn" :disabled="busy || !board || (speechVendor === 'minimax' && !actor?.voice_binding)" @click="submit('speech', {board, character_id: actorId, voice_asset_id: speechVoice || undefined}, false, speechVendor)">生成本集角色台词</button></div>
-            <p class="text-sm text-slate-400">读取当前分镜台词，按句生成并归档音频。</p>
+            <label class="block text-xs text-slate-400">{{ $t('views.voices.vendorLabel') }}<select v-model="speechVendor" class="voice-input mt-2"><option v-for="v in speechVendors" :key="v.id" :value="v.id">{{ v.label || v.id }}{{ v.id === 'minimax' ? '' : $t('views.voices.openaiCompat') }}</option></select></label>
+            <label class="block text-xs text-slate-400">{{ $t('views.voices.voiceThisRun') }}<select v-model="speechVoice" class="voice-input mt-2" :disabled="speechVendor !== 'minimax'"><option value="">{{ speechVendor !== 'minimax' ? $t('views.voices.vendorDefault') : $t('views.voices.seriesDefault') }}</option><option v-for="v in actor?.voice_variants || []" :key="v.voice_asset_id" :value="v.voice_asset_id">{{ v.name }}{{ v.state ? $t('views.voices.stateTag') : '' }}</option></select></label>
+            <div class="flex flex-wrap gap-2"><select v-model="board" class="voice-input max-w-xs"><option v-for="b in boards" :key="b">{{ b }}</option></select><button class="btn" :disabled="busy || !board || (speechVendor === 'minimax' && !actor?.voice_binding)" @click="submit('speech', {board, character_id: actorId, voice_asset_id: speechVoice || undefined}, false, speechVendor)">{{ $t('views.voices.genLines') }}</button></div>
+            <p class="text-sm text-slate-400">{{ $t('views.voices.genNote') }}</p>
           </div>
         </details>
       </main>

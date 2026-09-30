@@ -6,6 +6,7 @@ import { trackJob } from '../stores/jobs'
 import { fetchCreate, postJSON } from '../api'
 import { reconcilePending, studioData, submitRedoJob, type ProductionItem, type StudioState } from '../utils/productionStudio'
 import { useBoardSelection } from '../utils/useBoardSelection'
+import { t } from '../i18n'
 
 interface Frame {t: number; path: string}
 interface FramesResult {item_id: string; duration: number; step: number; frames: Frame[]}
@@ -69,17 +70,17 @@ function setTail(t: number) { tailT.value = tailT.value === t ? null : t }
 async function reshoot() {
   const project = app.current
   if (!project || !unit.value || !sourceItem.value) return
-  if (headT.value === null && tailT.value === null) { error.value = '首尾都为空等于整段重做，请走⑦创作生成的 V 生成渠道；这里请至少点选一个边界帧'; return }
+  if (headT.value === null && tailT.value === null) { error.value = t('views.shotRedo.bothEmpty'); return }
   const duration = frames.value?.duration || 0
   const t0 = headT.value ?? 0, t1 = tailT.value ?? duration
-  if (t1 - t0 < 0.5) { error.value = '重拍窗口过短（<0.5s），请重新选择边界'; return }
+  if (t1 - t0 < 0.5) { error.value = t('views.shotRedo.tooShort'); return }
   busy.value = true; error.value = ''
   try {
     const body = {project, board: board.value, target: unitId.value, t0, t1, prompt: prompt.value,
       source_item_id: sourceItem.value.id, defer_merge: true, vendor_id: vendor.value, video_options: {}}
     const r = await submitRedoJob(body)
-    if (r.id) void trackJob(r.id, `重拍 ${t0}–${t1}s`).then(async () => { if (app.current === project) await load() })
-    toast('重拍任务已提交，完成后点该片段的「一键合并」', 'ok')
+    if (r.id) void trackJob(r.id, t('views.shotRedo.jobLabel', { t0, t1 })).then(async () => { if (app.current === project) await load() })
+    toast(t('views.shotRedo.submitted'), 'ok')
   } catch (e) { error.value = String(e) } finally { busy.value = false }
 }
 async function merge(item: ProductionItem) {
@@ -89,51 +90,51 @@ async function merge(item: ProductionItem) {
   try {
     const r = await postJSON<{ok: boolean; version_name?: string; err?: string}>('/api/production/redo_merge',
       {project, board: board.value, target: unitId.value, item_id: item.id})
-    if (!r.ok) throw new Error(r.err || '合并失败')
-    toast(`已合并为 ${r.version_name}（候选，未自动采用）`, 'ok'); await load()
+    if (!r.ok) throw new Error(r.err || t('views.shotRedo.mergeFailed'))
+    toast(t('views.shotRedo.merged', { name: r.version_name }), 'ok'); await load()
   } catch (e) { error.value = String(e) } finally { merging.value = null }
 }
 function redoTag(item: ProductionItem) {
   if (!item.redo) return ''
-  return item.redo.merged ? `${item.redo.version_name || '已合并'}` : `重拍 ${item.redo.t0}–${item.redo.t1}s · 待合并`
+  return item.redo.merged ? (item.redo.version_name || t('views.shotRedo.mergedTag')) : t('views.shotRedo.pendingTag', { t0: item.redo.t0, t1: item.redo.t1 })
 }
 </script>
 
 <template>
   <div class="page-wide">
-    <header class="mb-5"><h1 class="grad-text text-2xl font-black">片段重拍</h1><p class="mt-1 text-sm text-slate-400">选择已生成视频的时间范围，重拍后合并为新候选。</p></header>
+    <header class="mb-5"><h1 class="grad-text text-2xl font-black">{{ $t('views.shotRedo.title') }}</h1><p class="mt-1 text-sm text-slate-400">{{ $t('views.shotRedo.lead') }}</p></header>
     <p v-if="error" role="alert" class="mb-4 rounded-lg bg-rose-950/50 p-3 text-rose-200">{{ error }}</p>
-    <label class="mb-4 block max-w-md text-xs text-slate-400">分镜<select v-model="board" class="control mt-1"><option v-for="b in boards" :key="b">{{ b }}</option></select></label>
+    <label class="mb-4 block max-w-md text-xs text-slate-400">{{ $t('views.shotRedo.board') }}<select v-model="board" class="control mt-1"><option v-for="b in boards" :key="b">{{ b }}</option></select></label>
     <div class="grid items-start gap-5 lg:grid-cols-[230px_minmax(0,1fr)]">
       <aside class="glass space-y-2 p-3">
-        <h2 class="mb-2 text-sm font-bold">V 列表</h2>
+        <h2 class="mb-2 text-sm font-bold">{{ $t('views.shotRedo.vList') }}</h2>
         <button v-for="u in units" :key="u.id" class="block w-full rounded-xl border p-3 text-left" :class="u.id === unitId ? 'border-sky-400/50 bg-sky-900/20' : 'border-white/10'" @click="unitId = u.id">
           <b>{{ u.label }} · {{ u.title }}</b>
-          <small class="mt-1 block text-slate-400">{{ u.duration }}s · {{ u.video_binding ? (u.video_stale ? '已采用·待确认' : '已采用') : '待生成' }}</small>
+          <small class="mt-1 block text-slate-400">{{ u.duration }}s · {{ u.video_binding ? (u.video_stale ? $t('views.shotRedo.adoptedStale') : $t('views.shotRedo.adopted')) : $t('views.shotRedo.toGenerate') }}</small>
         </button>
-        <p v-if="!units.length" class="text-xs text-slate-500">该分镜暂无 V 分组，请先到⑦创作生成建立分组。</p>
+        <p v-if="!units.length" class="text-xs text-slate-500">{{ $t('views.shotRedo.noUnits') }}</p>
       </aside>
       <main class="space-y-5 min-w-0">
         <section class="glass space-y-3 p-4">
-          <h2 class="font-bold text-sky-200">{{ unit ? `${unit.label} · 视频版本` : '请选择 V' }} <span class="text-xs font-normal text-slate-500">点「拉片抽帧」选一个版本作为重拍底片</span></h2>
+          <h2 class="font-bold text-sky-200">{{ unit ? $t('views.shotRedo.versions', { label: unit.label }) : $t('views.shotRedo.pickV') }} <span class="text-xs font-normal text-slate-500">{{ $t('views.shotRedo.versionsHint') }}</span></h2>
           <div class="grid gap-3 xl:grid-cols-2">
             <article v-for="i in versions" :key="i.id" class="rounded-xl border p-3" :class="sourceItem?.id === i.id ? 'border-sky-400/60 bg-sky-900/10' : 'border-white/10'">
               <p class="mb-2 text-xs text-slate-400">{{ i.created_at }} · {{ i.status }}<template v-if="i.actual_duration"> · {{ i.actual_duration }}s</template>
                 <span v-if="i.redo" class="ml-1 rounded px-1.5 py-0.5 text-[10px]" :class="i.redo.merged ? 'bg-emerald-900/60 text-emerald-200' : 'bg-violet-900/60 text-violet-200'">{{ redoTag(i) }}</span>
-                <span v-if="unit?.video_binding && outputPath(unit.video_binding as unknown as ProductionItem) === outputPath(i)" class="ml-1 rounded bg-sky-900/60 px-1.5 py-0.5 text-[10px] text-sky-200">已采用</span>
+                <span v-if="unit?.video_binding && outputPath(unit.video_binding as unknown as ProductionItem) === outputPath(i)" class="ml-1 rounded bg-sky-900/60 px-1.5 py-0.5 text-[10px] text-sky-200">{{ $t('views.shotRedo.adopted') }}</span>
               </p>
               <video :src="fileUrl(outputPath(i))" controls preload="none" class="my-2 w-full rounded-lg bg-black" />
               <div class="flex flex-wrap gap-2">
-                <button class="btn btn-sm" :disabled="i.status !== 'done' || framesBusy" @click="extractFrames(i)">{{ sourceItem?.id === i.id ? '重新拉片抽帧' : '拉片抽帧（设为底片）' }}</button>
-                <button v-if="i.action === 'redo_segment' && i.redo && !i.redo.merged && i.status === 'done'" class="btn btn-sm" :disabled="merging === i.id" @click="merge(i)">{{ merging === i.id ? '合并中…' : '一键合并' }}</button>
+                <button class="btn btn-sm" :disabled="i.status !== 'done' || framesBusy" @click="extractFrames(i)">{{ sourceItem?.id === i.id ? $t('views.shotRedo.reextract') : $t('views.shotRedo.extract') }}</button>
+                <button v-if="i.action === 'redo_segment' && i.redo && !i.redo.merged && i.status === 'done'" class="btn btn-sm" :disabled="merging === i.id" @click="merge(i)">{{ merging === i.id ? $t('views.shotRedo.merging') : $t('views.shotRedo.merge') }}</button>
               </div>
             </article>
-            <p v-if="!versions.length" class="text-xs text-slate-500">该 V 暂无视频版本，请先到⑦创作生成生成。</p>
+            <p v-if="!versions.length" class="text-xs text-slate-500">{{ $t('views.shotRedo.noVersions') }}</p>
           </div>
         </section>
         <section v-if="sourceItem" class="glass space-y-3 p-4">
-          <h2 class="font-bold text-sky-200">重拍窗口 <span class="text-xs font-normal text-slate-500">底片 {{ sourceItem.created_at }} · 首 {{ headT ?? '空（片头）' }}s · 尾 {{ tailT ?? '空（片末）' }}s</span></h2>
-          <p v-if="framesBusy" class="text-xs text-slate-400">抽帧拉片中…</p>
+          <h2 class="font-bold text-sky-200">{{ $t('views.shotRedo.window') }} <span class="text-xs font-normal text-slate-500">{{ $t('views.shotRedo.windowInfo', { base: sourceItem.created_at, head: headT ?? $t('views.shotRedo.headEmpty'), tail: tailT ?? $t('views.shotRedo.tailEmpty') }) }}</span></h2>
+          <p v-if="framesBusy" class="text-xs text-slate-400">{{ $t('views.shotRedo.extracting') }}</p>
           <div v-else-if="frames" class="space-y-3">
             <div class="flex gap-2 overflow-x-auto pb-2">
               <figure v-for="f in frames.frames" :key="f.path" class="shrink-0">
@@ -141,23 +142,23 @@ function redoTag(item: ProductionItem) {
                 <figcaption class="mt-1 flex items-center justify-between text-[10px] text-slate-400">
                   <span>{{ f.t }}s</span>
                   <span class="flex gap-1">
-                    <button class="rounded bg-sky-900/60 px-1 text-sky-200" @click="setHead(f.t)">首</button>
-                    <button class="rounded bg-rose-900/60 px-1 text-rose-200" @click="setTail(f.t)">尾</button>
+                    <button class="rounded bg-sky-900/60 px-1 text-sky-200" @click="setHead(f.t)">{{ $t('views.shotRedo.head') }}</button>
+                    <button class="rounded bg-rose-900/60 px-1 text-rose-200" @click="setTail(f.t)">{{ $t('views.shotRedo.tail') }}</button>
                   </span>
                 </figcaption>
               </figure>
             </div>
-            <p class="text-xs text-slate-500">抽帧步长 {{ frames.step }}s · 首空=从片头开始，尾空=拍到片末；首尾都空须走整段重做渠道。</p>
-            <textarea v-model="prompt" class="control" rows="3" placeholder="重拍提示词（默认带出该 V 的视频提示词，可改）"></textarea>
+            <p class="text-xs text-slate-500">{{ $t('views.shotRedo.stepHint', { step: frames.step }) }}</p>
+            <textarea v-model="prompt" class="control" rows="3" :placeholder="$t('views.shotRedo.promptPh')"></textarea>
             <div class="flex flex-wrap items-center gap-2">
               <select v-model="vendor" class="control max-w-[220px]"><option v-for="v in vendors" :key="v.id" :value="v.id">{{ v.label || v.id }}</option></select>
-              <button class="btn" :disabled="busy || !vendor" @click="reshoot">{{ busy ? '提交中…' : `重拍 ${headT ?? 0}–${tailT ?? (frames.duration || 0)}s` }}</button>
+              <button class="btn" :disabled="busy || !vendor" @click="reshoot">{{ busy ? $t('views.shotRedo.submitting') : $t('views.shotRedo.jobLabel', { t0: headT ?? 0, t1: tailT ?? (frames.duration || 0) }) }}</button>
             </div>
           </div>
         </section>
         <section v-if="pending.length" class="glass space-y-2 p-4">
-          <h2 class="font-bold text-sky-200">待合并片段</h2>
-          <p class="text-xs text-slate-500">重拍完成后在此一键合并：ffmpeg 把「底片[0,首] + 新片段 + 底片[尾,末]」拼回，落库为 V标签_首_尾_vN 新候选。</p>
+          <h2 class="font-bold text-sky-200">{{ $t('views.shotRedo.pending') }}</h2>
+          <p class="text-xs text-slate-500">{{ $t('views.shotRedo.pendingHint') }}</p>
         </section>
       </main>
     </div>
