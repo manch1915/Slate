@@ -30,6 +30,3 @@ export function readHidden(raw: string | null): HiddenEntries {
     return Object.fromEntries(Object.entries(value).filter(([, v]) => typeof v === 'string')) as HiddenEntries
   } catch { return {} }
 }
-export function galleryStatus(status: string): string {
-  return ({done:'完成',running:'生成中',generating:'生成中',queued:'排队中',pending:'待处理',awaiting_import:'待导入',error:'失败',failed:'失败',abnormal:'异常',cancelled:'已取消',canceled:'已取消',interrupted:'已中断',timeout:'超时'} as Record<string,string>)[status] || '异常'
-}
