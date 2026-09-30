@@ -9,6 +9,7 @@ import OverlayViewer from '../components/OverlayViewer.vue'
 import StyledSelect from '../components/StyledSelect.vue'
 import EmptyState from '../components/EmptyState.vue'
 import { icons } from '../components/icons'
+import { t } from '../i18n'
 
 const info = ref<FramesInfo | null>(null)
 const extracting = ref(false)
@@ -44,22 +45,22 @@ async function load(opts: { resetVideo?: boolean } = {}) {
 async function extract() {
   const mv = materialList.value.find((v) => v.rel === video.value)
   if (!app.current || !mv) {
-    toast('请先选择项目素材视频', 'err')
+    toast(t('views.frames.needVideo'), 'err')
     return
   }
   extracting.value = true
   try {
     const r = await runFramesExtract({ project: app.current, video: mv.abs })
-    toast(`逐帧任务 #${r.id} 已启动`, 'ok')
-    const j = await trackJob(r.id, `逐帧提取 ${mv.file}`)
+    toast(t('views.frames.started', { id: r.id }), 'ok')
+    const j = await trackJob(r.id, t('views.frames.jobLabel', { file: mv.file }))
     if (j.success) {
-      toast('提取完成', 'ok')
+      toast(t('views.frames.done'), 'ok')
       await load()
     } else {
-      toast('提取失败，详情见任务抽屉', 'err')
+      toast(t('views.frames.failed'), 'err')
     }
   } catch (e) {
-    toast(e instanceof Error ? e.message : '启动失败', 'err')
+    toast(e instanceof Error ? e.message : t('common.startFailed'), 'err')
   } finally {
     extracting.value = false
   }
@@ -102,9 +103,9 @@ function absPath(file: string) {
 async function copyRef(file: string) {
   try {
     await navigator.clipboard.writeText(absPath(file))
-    toast('绝对路径已复制到剪贴板', 'ok')
+    toast(t('views.frames.copied'), 'ok')
   } catch {
-    toast('复制失败（浏览器权限）', 'err')
+    toast(t('common.copyFailed'), 'err')
   }
 }
 
@@ -143,14 +144,14 @@ watch(() => app.current, () => load({ resetVideo: true }), { immediate: true })
 /** 删除 逐帧/每秒/ 整目录（逐帧产物可再生）。 */
 async function delFrames() {
   if (!app.current) return
-  if (!confirm(`确定删除「${app.current}/逐帧/每秒/」全部 ${info.value?.frames?.length ?? '?'} 帧？可重新提取`)) return
+  if (!confirm(t('views.frames.deleteConfirm', { path: app.current + '/逐帧/每秒/', n: info.value?.frames?.length ?? '?' }))) return
   try {
     await deleteFile(app.current, '逐帧/每秒')
-    toast('逐帧产物已删除', 'ok')
+    toast(t('views.frames.deleted'), 'ok')
     info.value = null
     await loadBasics()
   } catch (e) {
-    toast(e instanceof Error ? e.message : '删除失败', 'err')
+    toast(e instanceof Error ? e.message : t('common.deleteFailed'), 'err')
   }
 }
 </script>
@@ -158,61 +159,61 @@ async function delFrames() {
 <template>
   <div class="page">
     <header class="mb-6">
-      <h1 class="grad-text text-2xl font-black">③ 逐帧拉片</h1>
-      <p class="mt-1 text-xs text-slate-500">每秒抽一帧，用于细读动作与构图；点击帧放大，可复制绝对路径引用</p>
+      <h1 class="grad-text text-2xl font-black">{{ $t('nav.frames') }}</h1>
+      <p class="mt-1 text-xs text-slate-500">{{ $t('views.frames.lead') }}</p>
     </header>
 
     <!-- 工具条 -->
     <div class="glass mb-5 flex flex-wrap items-end gap-3 p-4">
       <label class="min-w-56 text-xs text-slate-400">
-        源视频（项目 拉片素材/）
+        {{ $t('common.srcVideo') }}
         <StyledSelect
           v-model="video"
           class="mt-1"
           :options="videoOptions"
           :labels="videoLabels"
           :storage-key="`wb.${app.current}.frames.video`"
-          placeholder="— 选择素材视频 —"
+          :placeholder="$t('common.pickVideo')"
         />
       </label>
       <p v-if="app.current && !materialList.length" class="mb-2 self-center rounded-lg bg-amber-400/10 px-3 py-1.5 text-xs-plus text-amber-300">
-        素材为空：先到首页「从 Downloads 导入」
+        {{ $t('common.noMaterial') }}
       </p>
       <button class="btn" :disabled="extracting || !app.current" @click="extract">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.frames" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        {{ extracting ? '提取中…' : '开始提取' }}
+        {{ extracting ? $t('views.frames.extracting') : $t('views.frames.extract') }}
       </button>
       <div class="flex-1"></div>
       <label v-if="info?.frames?.length" class="flex items-center gap-2 text-xs text-slate-400">
-        跳转
+        {{ $t('views.frames.jump') }}
         <input
-          v-model="jump" class="input w-28 tabular-nums" placeholder="mm:ss 或秒"
+          v-model="jump" class="input w-28 tabular-nums" :placeholder="$t('views.frames.jumpPh')"
           @keyup.enter="jumpTo"
         />
-        <button class="btn btn-ghost btn-sm" @click="jumpTo">跳转</button>
+        <button class="btn btn-ghost btn-sm" @click="jumpTo">{{ $t('views.frames.jump') }}</button>
       </label>
     </div>
 
-    <EmptyState v-if="!app.current" title="请先在左侧选择项目" />
+    <EmptyState v-if="!app.current" :title="$t('common.pickProjectFirst')" />
 
     <div v-else-if="!info || !info.frames?.length" class="glass p-12 text-center">
       <svg class="mx-auto mb-3 opacity-40" width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="1.5"><path :d="icons.frames" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <p class="text-sm text-slate-300">该项目还没有逐帧结果</p>
-      <p class="mt-2 text-xs text-slate-500">选择上方视频后点「开始提取」，产物写入 逐帧/每秒/</p>
+      <p class="text-sm text-slate-300">{{ $t('views.frames.none') }}</p>
+      <p class="mt-2 text-xs text-slate-500">{{ $t('views.frames.noneHint') }}</p>
     </div>
 
     <template v-else>
       <div class="mb-3 flex items-center gap-2 text-xs text-slate-500">
         <span class="min-w-0 flex-1 truncate">
-          源：{{ info.source || '—' }} · fps={{ info.fps ?? '?' }} · 共 {{ info.frames.length }} 帧（每秒一帧）
+          {{ $t('views.frames.info', { src: info.source || '—', fps: info.fps ?? '?', n: info.frames.length }) }}
         </span>
         <button
           class="btn btn-danger btn-sm shrink-0"
-          title="删除 逐帧/每秒/ 整个目录（可重新提取）"
+          :title="$t('views.frames.deleteTitle')"
           @click="delFrames"
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.trash" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          删除逐帧产物
+          {{ $t('views.frames.delete') }}
         </button>
       </div>
       <div class="grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-6 xl:grid-cols-8">
@@ -229,7 +230,7 @@ async function delFrames() {
             :src="frameUrl(f.file)"
             class="aspect-video w-full object-cover transition-transform duration-300 group-hover:scale-105"
             loading="lazy"
-            alt="帧"
+            :alt="$t('views.frames.frameAlt')"
           />
           <div v-else class="aspect-video w-full bg-white/5"></div>
           <span class="absolute left-1 top-1 rounded bg-black/70 px-1 py-0.5 text-2xs font-bold tabular-nums text-emerald-300">
@@ -237,7 +238,7 @@ async function delFrames() {
           </span>
           <button
             class="absolute bottom-1 right-1 rounded bg-black/70 p-1 text-slate-300 opacity-0 transition group-hover:opacity-100"
-            title="复制绝对路径"
+            :title="$t('views.frames.copyTitle')"
             @click.stop="copyRef(f.file)"
           >
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.copy" stroke-linecap="round" stroke-linejoin="round"/></svg>

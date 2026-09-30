@@ -9,6 +9,7 @@ import StyledSelect from '../components/StyledSelect.vue'
 import DelBadge from '../components/DelBadge.vue'
 import EmptyState from '../components/EmptyState.vue'
 import { icons } from '../components/icons'
+import { t } from '../i18n'
 
 const video = ref('')
 const enhance = ref<'none' | 'stretch' | 'clahe'>('none')
@@ -41,7 +42,7 @@ function expectedOut(): string {
 
 async function run() {
   if (!app.current || !video.value) {
-    toast('请先选择源视频', 'err')
+    toast(t('views.depth.needVideo'), 'err')
     return
   }
   running.value = true
@@ -57,9 +58,9 @@ async function run() {
   args.push('--out', expectedOut())
   try {
     const r = await runGeneric({ step: 'depth', args })
-    if (!r.id) throw new Error(r.err || '任务未启动')
-    toast(`深度任务 #${r.id} 已启动`, 'ok')
-    const j = await trackJob(r.id, `深度图 ${enhance.value}/${color.value}`)
+    if (!r.id) throw new Error(r.err || t('views.depth.notStarted'))
+    toast(t('views.depth.started', { id: r.id }), 'ok')
+    const j = await trackJob(r.id, t('views.depth.jobLabel', { enhance: enhance.value, color: color.value }))
     if (j.success) {
       // 从任务日志解析真实产物路径（motion_depth 末行打印 "DEPTH -> <path>"），不依赖前端猜测
       const m = (j.out || '').match(/DEPTH ->\s*(\S+?\.mp4)/i)
@@ -68,13 +69,13 @@ async function run() {
       } else {
         doneOut.value = expectedOut()
       }
-      toast('深度图生成完成', 'ok')
+      toast(t('views.depth.done'), 'ok')
       await loadBasics() // 刷新项目树，让「历史深度产物」立即出现
     } else {
-      toast('生成失败，详情见任务抽屉', 'err')
+      toast(t('views.depth.failed'), 'err')
     }
   } catch (e) {
-    toast(e instanceof Error ? e.message : '启动失败', 'err')
+    toast(e instanceof Error ? e.message : t('views.depth.startFailed'), 'err')
   } finally {
     running.value = false
   }
@@ -89,68 +90,68 @@ watch(() => app.current, () => {
 <template>
   <div class="page">
     <header class="mb-6">
-      <h1 class="grad-text text-2xl font-black">④ 深度动作</h1>
-      <p class="mt-1 text-xs text-slate-500">单目深度（近亮远暗）用于校准走位 / 动作 / 景别；默认忠实模型原始输出</p>
+      <h1 class="grad-text text-2xl font-black">{{ $t('nav.depth') }}</h1>
+      <p class="mt-1 text-xs text-slate-500">{{ $t('views.depth.lead') }}</p>
     </header>
 
     <!-- 参数条 -->
     <div class="glass mb-5 flex flex-wrap items-end gap-3 p-4">
       <label class="min-w-56 text-xs text-slate-400">
-        源视频（项目 拉片素材/）
+        {{ $t('views.depth.srcVideo') }}
         <StyledSelect
           v-model="video"
           class="mt-1"
           :options="videoOptions"
           :labels="videoLabels"
           :storage-key="`wb.${app.current}.depth.video`"
-          placeholder="— 选择素材视频 —"
+          :placeholder="$t('views.depth.pickVideo')"
         />
       </label>
       <p v-if="app.current && !materialList.length" class="mb-2 self-center rounded-lg bg-amber-400/10 px-3 py-1.5 text-xs-plus text-amber-300">
-        素材为空：先到首页「从 Downloads 导入」
+        {{ $t('views.depth.noMaterial') }}
       </p>
       <label class="w-40 text-xs text-slate-400">
-        对比度增强
+        {{ $t('views.depth.enhance') }}
         <StyledSelect
           v-model="enhance"
           class="mt-1"
           :options="['none', 'stretch', 'clahe']"
-          :labels="{ none: 'none（忠实原始）', stretch: 'stretch（轻微拉伸）', clahe: 'clahe（自适应均衡）' }"
+          :labels="{ none: $t('views.depth.enh.none'), stretch: $t('views.depth.enh.stretch'), clahe: $t('views.depth.enh.clahe') }"
           storage-key="wb.depth.enhance"
         />
       </label>
       <label class="w-36 text-xs text-slate-400">
-        色彩映射
+        {{ $t('views.depth.colormap') }}
         <StyledSelect
           v-model="color"
           class="mt-1"
           :options="['none', 'inferno']"
-          :labels="{ none: 'none（灰度）', inferno: 'inferno（伪彩）' }"
+          :labels="{ none: $t('views.depth.col.none'), inferno: $t('views.depth.col.inferno') }"
           storage-key="wb.depth.color"
         />
       </label>
       <button class="btn" :disabled="running || !video" @click="run">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.wave" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        {{ running ? '生成中…' : '生成深度图' }}
+        {{ running ? $t('common.generating') : $t('views.depth.generate') }}
       </button>
       <div class="flex-1"></div>
       <p class="max-w-xs text-2xs leading-relaxed text-slate-500">
-        单目深度在转场叠化、剧烈运镜处可能失真；验证用 depth_verify.py 看亮度分布与前后景分离度。
+        {{ $t('views.depth.caveat') }}
       </p>
     </div>
 
-    <EmptyState v-if="!app.current" title="请先在左侧选择项目" />
+    <EmptyState v-if="!app.current" :title="$t('views.depth.pickProject')" />
 
     <!-- 并排对比 -->
     <div v-else-if="video" class="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <div class="glass overflow-hidden">
-        <div class="border-b border-line-soft px-4 py-2 text-xs font-bold text-slate-300">原片</div>
+        <div class="border-b border-line-soft px-4 py-2 text-xs font-bold text-slate-300">{{ $t('views.depth.original') }}</div>
         <video :src="mediaUrl(video)" controls class="aspect-video w-full bg-black" preload="metadata"></video>
       </div>
       <div class="glass overflow-hidden">
         <div class="border-b border-line-soft px-4 py-2 text-xs font-bold text-slate-300">
-          深度图
-          <span v-if="doneOut" class="ml-2 rounded-full bg-violet-400/15 px-2 py-0.5 text-2xs text-violet-300">新生成 ✓</span>
+          {{ $t('views.depth.depthMap') }}
+          <span v-if="doneOut" class="ml-2 rounded-full bg-violet-400/15 px-2 py-0.5 text-2xs text-violet-300">{{ $t('views.depth.fresh') }}</span>
         </div>
         <video
           v-if="doneOut || depthProducts.find((d) => d.path === expectedOut())"
@@ -158,15 +159,15 @@ watch(() => app.current, () => {
           controls class="aspect-video w-full bg-black" preload="metadata"
         ></video>
         <div v-else class="flex aspect-video flex-col items-center justify-center bg-black/40 text-xs text-slate-500">
-          <p>该视频还没有深度产物</p>
-          <p class="mt-1 text-2xs">设置参数后点「生成深度图」</p>
+          <p>{{ $t('views.depth.noDepth') }}</p>
+          <p class="mt-1 text-2xs">{{ $t('views.depth.noDepthHint') }}</p>
         </div>
       </div>
     </div>
 
     <!-- 历史产物 -->
     <section v-if="depthProducts.length" class="mt-6">
-      <h3 class="mb-2 text-xs font-bold text-slate-500">已有深度产物（项目树 深度图*.mp4）</h3>
+      <h3 class="mb-2 text-xs font-bold text-slate-500">{{ $t('views.depth.history') }}</h3>
       <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <div v-for="d in depthProducts" :key="d.path" class="glass glass-hover group relative overflow-hidden" :style="{ '--glow': 'rgba(167,139,250,0.35)' }">
           <DelBadge :path="d.path.replace(`projects/${app.current}/`, '')" :label="d.file"

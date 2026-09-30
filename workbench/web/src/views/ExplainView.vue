@@ -11,6 +11,7 @@ import { trackJob } from '../stores/jobs'
 import { renderMarkdown, splitSections } from '../utils/markdown'
 import { icons } from '../components/icons'
 import EmptyState from '../components/EmptyState.vue'
+import { t } from '../i18n'
 
 const GLOW = 'rgba(167,139,250,0.35)'
 
@@ -33,7 +34,7 @@ async function loadVersions() {
     versions.value = await fetchAnalysisList(app.current)
   } catch {
     versions.value = []
-    toast('版本列表加载失败（后端可能未就绪）', 'err')
+    toast(t('views.explain.listFailed'), 'err')
   } finally {
     loadingList.value = false
   }
@@ -57,7 +58,7 @@ async function loadDoc(name: string) {
     if (e instanceof Error && 'status' in e && (e as { status: number }).status === 404) {
       // 尚无讲解，属正常 → 空状态引导
     } else {
-      toast('讲解加载失败', 'err')
+      toast(t('views.explain.loadFailed'), 'err')
     }
   } finally {
     if (seq === docSeq) loadingDoc.value = false
@@ -82,16 +83,16 @@ async function loadPreflight(name: string) {
 /** 删除当前版本讲解文档（可再生）。 */
 async function delDoc() {
   if (!app.current || !currentName.value) return
-  if (!confirm(`确定删除「${currentName.value}/讲解.md」？可重新生成`)) return
+  if (!confirm(t('views.explain.deleteConfirm', { name: currentName.value }))) return
   try {
     await deleteFile(app.current, `拉片/${currentName.value}/讲解.md`)
-    toast('讲解已删除', 'ok')
+    toast(t('views.explain.deleted'), 'ok')
     md.value = ''
     hasDoc.value = false
     await loadBasics()
     await loadPreflight(currentName.value)
   } catch (e) {
-    toast(e instanceof Error ? e.message : '删除失败', 'err')
+    toast(e instanceof Error ? e.message : t('common.deleteFailed'), 'err')
   }
 }
 
@@ -100,49 +101,49 @@ const preChips = computed(() => {
   const p = pre.value
   if (!p || !p.ok) return []
   const chips: { text: string; color: string; title?: string }[] = []
-  chips.push({ text: `拉片数据 ✓ ${p.shot_count} 镜`, color: '#34d399' })
+  chips.push({ text: t('views.explain.chip.data', { n: p.shot_count }), color: '#34d399' })
   const kfOk = (p.kf_disk ?? 0) >= (p.kf_total ?? 0)
   chips.push(
     kfOk
-      ? { text: `关键帧 ✓ ${p.kf_disk}/${p.kf_total} 在盘`, color: '#34d399' }
+      ? { text: t('views.explain.chip.kfOk', { disk: p.kf_disk, total: p.kf_total }), color: '#34d399' }
       : {
-          text: `关键帧 ⚠ ${p.kf_disk}/${p.kf_total} 在盘`,
+          text: t('views.explain.chip.kfWarn', { disk: p.kf_disk, total: p.kf_total }),
           color: '#fbbf24',
-          title: '缺帧的镜头将降级为规则版讲解（可在拉片页对该镜「重新识别」补帧）'
+          title: t('views.explain.chip.kfTitle')
         }
   )
   chips.push(
     p.vision_vendor
-      ? { text: `vision 厂商 ✓ ${p.vision_vendor}`, color: '#34d399' }
-      : { text: 'vision 厂商 ✗ 未配置', color: '#f87171', title: '将生成规则版讲解；去「环境」页给厂商配 vision 模型后可得 AI 深度讲解' }
+      ? { text: t('views.explain.chip.vision', { v: p.vision_vendor }), color: '#34d399' }
+      : { text: t('views.explain.chip.noVision'), color: '#f87171', title: t('views.explain.chip.noVisionTitle') }
   )
   chips.push(
     p.has_doc
-      ? { text: `已有讲解（${p.doc_mtime}）`, color: '#38bdf8', title: '重新生成会覆盖该文档' }
-      : { text: '尚无讲解文档', color: '#64748b' }
+      ? { text: t('views.explain.chip.hasDoc', { time: p.doc_mtime }), color: '#38bdf8', title: t('views.explain.chip.overwrite') }
+      : { text: t('views.explain.chip.noDoc'), color: '#64748b' }
   )
   return chips
 })
 
 async function generate() {
   if (!app.current || !currentName.value) {
-    toast('请先选择解构版本', 'err')
+    toast(t('views.explain.needVersion'), 'err')
     return
   }
   generating.value = true
   try {
     const r = await runExplain({ project: app.current, name: currentName.value })
-    toast(`讲解任务 #${r.id} 已启动`, 'ok')
-    const j = await trackJob(r.id, `镜头语言讲解 ${currentName.value}`)
+    toast(t('views.explain.started', { id: r.id }), 'ok')
+    const j = await trackJob(r.id, t('views.explain.jobLabel', { name: currentName.value }))
     if (j.success) {
-      toast('讲解生成完成', 'ok')
+      toast(t('views.explain.done'), 'ok')
       await loadDoc(currentName.value)
       await loadPreflight(currentName.value)
     } else {
-      toast('讲解生成失败，详情见任务抽屉', 'err')
+      toast(t('views.explain.failed'), 'err')
     }
   } catch (e) {
-    toast(e instanceof Error ? e.message : '启动失败', 'err')
+    toast(e instanceof Error ? e.message : t('common.startFailed'), 'err')
   } finally {
     generating.value = false
   }
@@ -172,19 +173,19 @@ watch(currentName, (n) => {
 <template>
   <div class="page">
     <header class="mb-6">
-      <h1 class="grad-text text-2xl font-black">⑤ 镜头讲解</h1>
-      <p class="mt-1 text-xs text-slate-500">对选定解构版本逐镜生成镜头语言教学讲解（景别/运镜/轴线/叙事意图）</p>
+      <h1 class="grad-text text-2xl font-black">{{ $t('nav.explain') }}</h1>
+      <p class="mt-1 text-xs text-slate-500">{{ $t('views.explain.lead') }}</p>
     </header>
 
-    <EmptyState v-if="!app.current" title="请先在左侧选择项目" />
+    <EmptyState v-if="!app.current" :title="$t('common.pickProjectFirst')" />
 
     <div v-else class="flex gap-5">
       <!-- 版本时间线（同拉页模式） -->
       <aside class="w-60 shrink-0">
-        <h3 class="mb-2 text-xs font-bold text-slate-500">解构版本</h3>
-        <div v-if="loadingList" class="glass p-4 text-center text-xs text-slate-500">加载版本…</div>
+        <h3 class="mb-2 text-xs font-bold text-slate-500">{{ $t('views.explain.versions') }}</h3>
+        <div v-if="loadingList" class="glass p-4 text-center text-xs text-slate-500">{{ $t('views.explain.loadingVersions') }}</div>
         <div v-else-if="!versions.length" class="glass p-4 text-center text-xs text-slate-500">
-          暂无解构版本<br />请先在「① 拉片结构」生成
+          {{ $t('views.explain.noVersions') }}<br />{{ $t('views.explain.noVersionsHint') }}
         </div>
         <div v-else class="relative space-y-2 pl-4">
           <div class="absolute bottom-2 left-[5px] top-2 w-px bg-gradient-to-b from-violet-500/60 to-fuchsia-500/40"></div>
@@ -202,7 +203,7 @@ watch(currentName, (n) => {
             ></span>
             <div class="truncate text-sm font-bold text-slate-100">{{ v.name }}</div>
             <div class="mt-1 text-2xs text-slate-500">
-              {{ v.created_at || '' }} · {{ v.shot_count ?? '?' }} 镜
+              {{ v.created_at || '' }} · {{ $t('common.shots', { n: v.shot_count ?? '?' }) }}
               <template v-if="v.first_t !== undefined && v.last_t !== undefined">
                 · {{ fmtT(v.first_t) }}–{{ fmtT(v.last_t) }}
               </template>
@@ -222,25 +223,25 @@ watch(currentName, (n) => {
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path :d="icons.bolt" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
-            {{ generating ? '生成中…' : pre?.has_doc ? '重新生成讲解' : '生成讲解' }}
+            {{ generating ? $t('common.generating') : pre?.has_doc ? $t('views.explain.regen') : $t('views.explain.gen') }}
           </button>
           <button
             v-if="pre?.has_doc"
             class="btn btn-danger btn-sm"
-            title="删除该版本的 讲解.md（可重新生成）"
+            :title="$t('views.explain.deleteTitle')"
             :disabled="generating"
             @click="delDoc"
           >
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path :d="icons.trash" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
-            删除讲解
+            {{ $t('views.explain.delete') }}
           </button>
         </div>
 
         <!-- 前置态：讲解只读拉片产物（analysis.json + 已抽关键帧），不做任何重抽帧 -->
         <div v-if="currentName && preChips.length" class="glass mb-4 flex flex-wrap items-center gap-2 px-3 py-2.5">
-          <span class="text-2xs font-bold text-slate-500">前置态</span>
+          <span class="text-2xs font-bold text-slate-500">{{ $t('views.explain.pre') }}</span>
           <span
             v-for="(c, i) in preChips"
             :key="i"
@@ -249,7 +250,7 @@ watch(currentName, (n) => {
             :title="c.title || ''"
           >{{ c.text }}</span>
           <span class="flex-1"></span>
-          <span class="text-2xs text-slate-500">只读拉片产物 + AI 调用，不重抽帧、不动原片</span>
+          <span class="text-2xs text-slate-500">{{ $t('views.explain.preNote') }}</span>
         </div>
 
         <!-- 生成中 -->
@@ -257,12 +258,12 @@ watch(currentName, (n) => {
           <svg class="animate-spin" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" stroke-width="2.5">
             <path d="M12 3a9 9 0 1 0 9 9" stroke-linecap="round" />
           </svg>
-          <p class="text-sm text-slate-300">正在逐镜生成讲解…</p>
-          <p class="text-xs text-slate-500">每镜完成一行日志，实时进度见右下角任务抽屉</p>
+          <p class="text-sm text-slate-300">{{ $t('views.explain.running') }}</p>
+          <p class="text-xs text-slate-500">{{ $t('views.explain.runningHint') }}</p>
         </div>
 
         <!-- 加载中 -->
-        <div v-else-if="loadingDoc" class="glass p-16 text-center text-sm text-slate-500">加载讲解…</div>
+        <div v-else-if="loadingDoc" class="glass p-16 text-center text-sm text-slate-500">{{ $t('views.explain.loadingDoc') }}</div>
 
         <!-- 空状态 -->
         <div v-else-if="!hasDoc" class="glass p-14 text-center">
@@ -270,10 +271,10 @@ watch(currentName, (n) => {
             <path :d="icons.book" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
           <p class="text-sm text-slate-300">
-            {{ currentName ? '该版本还没有讲解文档' : '先在左侧选择一个解构版本' }}
+            {{ currentName ? $t('views.explain.noDoc') : $t('views.explain.pickVersion') }}
           </p>
           <p v-if="currentName" class="mt-2 text-xs leading-relaxed text-slate-500">
-            点击右上角「生成讲解」，AI 将逐镜分析镜头语言并生成 markdown 讲义
+            {{ $t('views.explain.emptyHint') }}
           </p>
         </div>
 
