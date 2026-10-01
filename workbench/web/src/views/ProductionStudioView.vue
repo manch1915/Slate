@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t, te } from '../i18n'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { app, projectFiles, toast } from '../stores/app'
 import { trackJob } from '../stores/jobs'
@@ -24,7 +25,7 @@ const currentShots = computed(() => scope.value === 'S' ? (shot.value ? [shot.va
 const referenceAudio = computed(() => capability.value?.audio_refs && videoOptions.value.mode === 'reference')
 const canBindVoices = computed(() => referenceAudio.value && !['agnes','aliyun'].includes(vendor.value))
 const urlLines = (value:string) => value.split(/\r?\n/).map(s => s.trim()).filter(Boolean)
-const promptFields = [{key: 'prompt_image', label: '参考帧提示词'}, {key: 'prompt_video', label: '视频提示词'}, {key: 'prompt_grid', label: '宫格提示词'}] as const
+const promptFields = [{key: 'prompt_image'}, {key: 'prompt_video'}, {key: 'prompt_grid'}] as const
 const optimizing = ref('')
 const defaultVideoDuration = ref(15), savedDefaultVideoDuration = ref(15), defaultDurationSaving = ref(false)
 async function saveDefaultVideoDuration() {
@@ -34,10 +35,10 @@ async function saveDefaultVideoDuration() {
     const r = await saveStudioSettings({default_video_duration: Number(defaultVideoDuration.value)})
     defaultVideoDuration.value = r.default_video_duration
     savedDefaultVideoDuration.value = r.default_video_duration
-    toast('V 分组默认时长已保存', 'ok')
+    toast(t('views.production.durationSaved'), 'ok')
   } catch (e) {
     defaultVideoDuration.value = savedDefaultVideoDuration.value
-    error.value = e instanceof Error ? e.message : '保存默认时长失败'
+    error.value = e instanceof Error ? e.message : t('views.production.durationSaveFailed')
   }
   finally { defaultDurationSaving.value = false }
 }
@@ -57,7 +58,7 @@ const assetTokens = computed(() => [...new Set(shots.value.flatMap(s => [s.scene
 // ── 引用素材全量小图：未生成的标出并提供「生成」（复用素材生成链路 /api/asset/image）──
 interface AssetRow {kind: string; id: string; name: string; path?: string}
 const assetMap = ref<Map<string, AssetRow>>(new Map()), genningAsset = ref('')
-const KIND_CN: Record<string, string> = {scene: '场景', character: '人物', prop: '道具', style: '画风'}
+const kindLabel = (k: string, fallback = k) => (te('views.production.kind.' + k) ? t('views.production.kind.' + k) : fallback)
 const assetRefs = computed(() => {
   const out: {token: string; kind: string; id: string; name: string; image: string}[] = []
   for (const token of assetTokens.value) {
@@ -84,10 +85,10 @@ async function genAsset(kind: string, id: string) {
   try {
     const r = await postJSON<{ok: boolean; id?: number; err?: string}>('/api/asset/image', {project, kind, id})
     if (!r.ok && r.err) throw new Error(r.err)
-    if (r.id) void trackJob(r.id, `素材生成 ${KIND_CN[kind] || kind} ${id}`).then(async () => {
+    if (r.id) void trackJob(r.id, t('views.production.job.asset', { kind: kindLabel(kind), id })).then(async () => {
       if (app.current === project) { await loadAssets(); await gallery() }
     })
-    toast('素材生成任务已提交，完成后小图自动出现', 'ok')
+    toast(t('views.production.assetSubmitted'), 'ok')
   } catch (e) { error.value = String(e) } finally { genningAsset.value = '' }
 }
 // ── S 卡模式：静态参考（关键帧/宫格）| 动态视频；缩略图只保留当前选中 ──
@@ -123,7 +124,7 @@ function recomposeUnit() {
   const m = /整段补充：([\s\S]*)$/.exec(u.prompt_video || '')
   u.prompt_video = sections.join('\n') + (m ? '\n整段补充：' + m[1] : '')
   dirty.value = true
-  toast('已按当前各 S 提示词重拼，尾部整段补充保留', 'ok')
+  toast(t('views.production.recomposed'), 'ok')
 }
 function onModeSelect(event: Event, s: ProductionShot) {
   const value = (event.target as HTMLSelectElement).value
@@ -138,7 +139,7 @@ async function adoptGrid(item: ProductionItem) {
   error.value = ''
   try {
     await studioPost('adopt', {...base(), scope: 'V', target: unit.value.id, type: 'grid', item_id: item.id, revision: data.value?.revision})
-    await load(); toast('宫格已采用为整 V 直出的参考', 'ok')
+    await load(); toast(t('views.production.gridAdopted'), 'ok')
   } catch (e) { error.value = String(e) }
 }
 function gridCandidateFor(s: ProductionShot) { return items.value.filter(i => i.action === 'grid' && i.shot_id === s.id && i.board === board.value && i.status === 'done').at(-1) || null }
@@ -149,13 +150,13 @@ async function makeGrid(s?: ProductionShot) {
   const target = isShot ? s!.id : unit.value?.id
   if (!target) return
   if (dirty.value && !await savePrompts()) return
-  if (!vendor.value) { error.value = '请先在右侧栏选择生图模型'; return }
+  if (!vendor.value) { error.value = t('views.production.pickImageModel'); return }
   busy.value = true; error.value = ''
   try {
     const r = await submitStudioJob({...base(), action: 'grid', vendor_id: vendor.value, scope: isShot ? 'S' : 'V',
       target, type: 'image', prompt_grid: isShot ? (s!.prompt_grid || '') : (unit.value?.prompt_grid || '')})
-    if (r.id) void trackJob(r.id, `宫格生成 ${isShot ? s!.id : unit.value?.label || ''}`).then(async () => { if (app.current === project) await load() })
-    toast(isShot ? '本 S 宫格任务已提交（一次生图调用）' : '整 V 宫格任务已提交（一次生图调用，混排全部 S）', 'ok')
+    if (r.id) void trackJob(r.id, t('views.production.job.grid', { target: isShot ? s!.id : unit.value?.label || '' })).then(async () => { if (app.current === project) await load() })
+    toast(isShot ? t('views.production.gridSubmittedS') : t('views.production.gridSubmittedV'), 'ok')
   } catch (e) { error.value = String(e) } finally { busy.value = false }
 }
 function pathUrl(path: string) { return mediaUrl(path.startsWith('projects/') ? path : `projects/${app.current}/${path}`) }
@@ -215,7 +216,7 @@ async function gallery() {
     const finished = r.items.some(i => ['done', 'error'].includes(i.status) && items.value.some(old => old.id === i.id && ['queued', 'running'].includes(old.status)))
     items.value = r.items as ProductionItem[]
     if (finished && !dirty.value) await load()
-  } catch (e) { if (project === app.current) error.value = '画廊加载失败：' + String(e) }
+  } catch (e) { if (project === app.current) error.value = t('views.production.galleryFailed', { err: String(e) }) }
   finally { galleryBusy = false }
 }
 
@@ -243,7 +244,7 @@ async function saveOptions() {
 function base() { return {project: app.current, board: board.value, revision: data.value?.revision} }
 async function savePrompts() {
   busy.value = true
-  try { await studioPost('save', {...base(), shots: allShots.value, units: units.value.length ? units.value : undefined}); await load(); toast('提示词与时长已保存', 'ok'); return true }
+  try { await studioPost('save', {...base(), shots: allShots.value, units: units.value.length ? units.value : undefined}); await load(); toast(t('views.production.promptsSaved'), 'ok'); return true }
   catch (e) { error.value = String(e); return false } finally { busy.value = false }
 }
 function editShotDuration(s: ProductionShot, event: Event) {
@@ -261,8 +262,8 @@ async function optimize(targetScope: 'S' | 'V', target: string, field: string) {
   try {
     const r = await submitStudioJob({...base(), action: 'optimize', vendor_id: textVendor.value, scope: targetScope, target, field})
     if (r.id) {
-      const result = await trackJob(r.id, '优化提示词')
-      if (!result.success) throw new Error(result.err || '优化失败，原文已保留')
+      const result = await trackJob(r.id, t('views.production.job.optimize'))
+      if (!result.success) throw new Error(result.err || t('views.production.optimizeFailed'))
     }
     if (app.current === project && board.value === name) {
       // 精确回填：只把优化后的字段写进当前编辑对象，不动其他未保存修改
@@ -275,7 +276,7 @@ async function optimize(targetScope: 'S' | 'V', target: string, field: string) {
       const local = pool.find(x => x.id === target)
       if (local && typeof fresh === 'string') local[field] = fresh
       if (!dirty.value) await load()
-      else toast('优化完成，已回填当前字段', 'ok')
+      else toast(t('views.production.optimized'), 'ok')
     }
   } catch (e) { error.value = String(e) } finally { optimizing.value = '' }
 }
@@ -308,7 +309,7 @@ async function mergeNext() {
 }
 async function job(action: string, recover = false) {
   if (action === 'group' && dirty.value && !recover && !await savePrompts()) return
-  if (dirty.value && !recover) { error.value = '请先保存已编辑内容'; return }
+  if (dirty.value && !recover) { error.value = t('views.production.saveFirst'); return }
   const project = app.current
   const body = {...base(), action, vendor_id: ['group', 'prompts'].includes(action) ? textVendor.value : vendor.value,
     scope: scope.value, target: currentTarget.value, type: kind.value,
@@ -318,10 +319,10 @@ async function job(action: string, recover = false) {
   try {
     const result = await submitStudioJob(body, recover)
     await gallery()
-    if (result.id) void trackJob(result.id, action === 'generate' ? `${scope.value} ${currentTarget.value} ${kind.value === 'image' ? '关键帧' : '视频'}` : '制作编排').then(async () => {
-      if (app.current === project) { await gallery(); if (!dirty.value) await load(); else toast('后台完成，请保存当前编辑后刷新', 'info') }
+    if (result.id) void trackJob(result.id, action === 'generate' ? t('views.production.job.generate', { scope: scope.value, target: currentTarget.value, kind: kind.value === 'image' ? t('views.production.keyframe') : t('views.production.video') }) : t('views.production.job.arrange')).then(async () => {
+      if (app.current === project) { await gallery(); if (!dirty.value) await load(); else toast(t('views.production.bgDone'), 'info') }
     })
-    toast(result.reused ? '已复用同一请求' : '后台任务已提交，可继续编辑', 'ok')
+    toast(result.reused ? t('views.production.reused') : t('views.production.submitted'), 'ok')
   } catch (e) { error.value = String(e) } finally { busy.value = false }
 }
 async function submitCurrent() {
@@ -334,12 +335,12 @@ async function adopt(item: ProductionItem) {
 }
 async function delItem(item: ProductionItem) {
   const project = app.current
-  if (!project || !confirm('删除该候选及其产物文件？已采用/被重拍引用的产物会被拒绝。')) return
+  if (!project || !confirm(t('views.production.confirmDelItem'))) return
   error.value = ''
   try {
     const r = await postJSON<{ok: boolean; err?: string}>('/api/production/item/delete', {project, board: board.value, item_id: item.id})
-    if (!r.ok) throw new Error(r.err || '删除失败')
-    toast('候选已删除', 'ok'); await gallery()
+    if (!r.ok) throw new Error(r.err || t('common.deleteFailed'))
+    toast(t('views.production.itemDeleted'), 'ok'); await gallery()
   } catch (e) { error.value = String(e) }
 }
 // ── 局部修补（重做片段）：抽已采用 V 视频的 t0/t1 锚点帧 → 首尾帧生成中段 → 自动拼回 → 新候选（人工采用照旧）
@@ -362,8 +363,8 @@ function onRedoMeta(event: Event) {
 async function submitRedo() {
   const u = unit.value, project = app.current, name = board.value
   if (!u?.video_binding || redoBusy.value) return
-  if (!Number.isFinite(redoT0.value) || !Number.isFinite(redoT1.value) || redoT0.value < 0 || redoT1.value <= redoT0.value) { error.value = '修补窗口需满足 0 ≤ 起点 < 终点'; return }
-  if (redoVideoDur.value && redoT1.value > redoVideoDur.value + 0.05) { error.value = `修补终点超出视频实际时长 ${redoVideoDur.value.toFixed(1)}s`; return }
+  if (!Number.isFinite(redoT0.value) || !Number.isFinite(redoT1.value) || redoT0.value < 0 || redoT1.value <= redoT0.value) { error.value = t('views.production.redoWindow'); return }
+  if (redoVideoDur.value && redoT1.value > redoVideoDur.value + 0.05) { error.value = t('views.production.redoTooLong', { dur: redoVideoDur.value.toFixed(1) }); return }
   redoBusy.value = true; error.value = ''
   const video_options: Record<string, unknown> = {}
   if (videoOptions.value.resolution) video_options.resolution = videoOptions.value.resolution
@@ -373,10 +374,10 @@ async function submitRedo() {
       prompt: redoPrompt.value, vendor_id: vendor.value, video_options})
     redoOpen.value = false
     await gallery()
-    if (result.id) void trackJob(result.id, `局部修补 ${redoT0.value}–${redoT1.value}s`).then(async () => {
-      if (app.current === project) { await gallery(); if (!dirty.value) await load(); else toast('后台完成，请保存当前编辑后刷新', 'info') }
+    if (result.id) void trackJob(result.id, t('views.production.job.redo', { t0: redoT0.value, t1: redoT1.value })).then(async () => {
+      if (app.current === project) { await gallery(); if (!dirty.value) await load(); else toast(t('views.production.bgDone'), 'info') }
     })
-    toast(result.reused ? '已复用同一请求' : '修补任务已提交，产出为新候选待人工采用', 'ok')
+    toast(result.reused ? t('views.production.reused') : t('views.production.redoSubmitted'), 'ok')
   } catch (e) { error.value = String(e) } finally { redoBusy.value = false }
 }
 watch([() => app.current, board], () => {
@@ -415,86 +416,86 @@ onBeforeUnmount(() => window.clearInterval(timer))
 <template>
   <div class="page-wide production-studio">
     <header class="mb-5 flex flex-wrap items-end justify-between gap-3">
-      <div><h1 class="grad-text text-2xl font-black">⑦ 创作生成</h1><p class="mt-1 text-xs text-slate-500">按 S 生成关键帧，按 V 生成视频；已采用片段可继续重拍。</p></div>
+      <div><h1 class="grad-text text-2xl font-black">{{ $t('views.production.title') }}</h1><p class="mt-1 text-xs text-slate-500">{{ $t('views.production.intro') }}</p></div>
       <div class="flex items-center gap-2">
-        <span v-if="dirty" class="text-xs text-amber-200">有未保存修改</span>
-        <button class="btn btn-sm" :disabled="busy || !dirty" @click="savePrompts">保存提示词与时长</button>
+        <span v-if="dirty" class="text-xs text-amber-200">{{ $t('views.production.dirty') }}</span>
+        <button class="btn btn-sm" :disabled="busy || !dirty" @click="savePrompts">{{ $t('views.production.savePrompts') }}</button>
       </div>
     </header>
     <div v-if="error" role="alert" class="mb-3 rounded-xl bg-rose-950/40 p-3 text-sm text-rose-200">{{ error }}<button class="ml-3" @click="error = ''">×</button></div>
     <!-- 制作规格（E05）：V 总时长超过单集目标时后端 state 给出提示 -->
     <div v-if="data?.brief_notice" class="mb-3 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs-plus text-amber-200">！{{ data.brief_notice }}</div>
-    <p v-if="!app.current" class="p-10 text-slate-400">请先选择项目。</p>
+    <p v-if="!app.current" class="p-10 text-slate-400">{{ $t('views.production.pickProject') }}</p>
     <div v-else class="studio-columns">
       <aside class="glass studio-sidebar">
-        <label class="block text-xs text-slate-400">分集 / 分镜 JSON<select v-model="board" class="control mt-2"><option v-for="b in boards" :key="b">{{ b }}</option></select></label>
-        <label class="block text-xs text-slate-400">编排模型<select v-model="textVendor" class="control mt-1"><option v-for="v in textModels" :key="v.id" :value="v.id">{{ v.models.text }}</option></select></label>
-        <label class="block text-xs text-slate-300">自动合并的 V 默认时长（全局）
+        <label class="block text-xs text-slate-400">{{ $t('views.production.boardJson') }}<select v-model="board" class="control mt-2"><option v-for="b in boards" :key="b">{{ b }}</option></select></label>
+        <label class="block text-xs text-slate-400">{{ $t('views.production.arrangeModel') }}<select v-model="textVendor" class="control mt-1"><option v-for="v in textModels" :key="v.id" :value="v.id">{{ v.models.text }}</option></select></label>
+        <label class="block text-xs text-slate-300">{{ $t('views.production.defaultDur') }}
           <select v-model.number="defaultVideoDuration" class="control mt-1" :disabled="defaultDurationSaving" @change="saveDefaultVideoDuration">
-            <option :value="8">8 秒</option><option :value="15">15 秒</option><option :value="30">30 秒</option>
+            <option :value="8">{{ $t('views.production.seconds', { n: 8 }) }}</option><option :value="15">{{ $t('views.production.seconds', { n: 15 }) }}</option><option :value="30">{{ $t('views.production.seconds', { n: 30 }) }}</option>
           </select>
         </label>
-        <button class="btn w-full" :disabled="busy || !board || !textVendor" @click="job('group')">自动合并分镜</button>
-        <button v-if="!units.length" class="btn btn-ghost w-full" :disabled="!board" @click="initialize">按场景创建 V 分组</button>
+        <button class="btn w-full" :disabled="busy || !board || !textVendor" @click="job('group')">{{ $t('views.production.autoMerge') }}</button>
+        <button v-if="!units.length" class="btn btn-ghost w-full" :disabled="!board" @click="initialize">{{ $t('views.production.initUnits') }}</button>
         <button v-for="u in units" :key="u.id" class="unit-card" :class="{'selected': u.id === selectedUnit}" @click="chooseUnit(u)">
           <b>{{ u.label }} · {{ u.title }}<span v-if="u.judge?.warnings?.length" class="ml-1 cursor-help text-amber-300" :title="u.judge.warnings.join('\n')">！</span></b><small>{{ u.shot_ids.join(' · ') }} · {{ u.duration }}s</small>
-          <small class="unit-status" :class="u.stale || u.video_stale ? 'is-pending' : 'is-ready'">{{ u.stale ? '汇总待更新' : u.video_stale ? '已采用视频待确认' : u.video_binding ? '已采用视频' : '待生成视频' }}</small>
+          <small class="unit-status" :class="u.stale || u.video_stale ? 'is-pending' : 'is-ready'">{{ u.stale ? $t('views.production.unitStatus.stale') : u.video_stale ? $t('views.production.unitStatus.videoStale') : u.video_binding ? $t('views.production.unitStatus.adopted') : $t('views.production.unitStatus.pending') }}</small>
         </button>
       </aside>
       <main class="glass min-w-0 space-y-4 p-4">
         <section v-if="unit" class="space-y-3 rounded-xl border border-sky-400/30 bg-sky-950/20 p-4">
           <div class="flex flex-wrap items-center justify-between gap-2">
-            <h2 class="text-base font-black text-sky-200">{{ unit.label }} · 分镜视频 <span class="text-xs font-normal text-slate-400">{{ unit.duration }} 秒 · 一次生成整段</span></h2>
-            <span v-if="unit.judge?.warnings?.length" class="cursor-help text-xs text-amber-300" :title="unit.judge.warnings.join('\n')">！提示词可能无法完整生成（悬浮看详情）</span>
+            <h2 class="text-base font-black text-sky-200">{{ $t('views.production.unitVideo', { label: unit.label }) }} <span class="text-xs font-normal text-slate-400">{{ $t('views.production.unitMeta', { n: unit.duration }) }}</span></h2>
+            <span v-if="unit.judge?.warnings?.length" class="cursor-help text-xs text-amber-300" :title="unit.judge.warnings.join('\n')">{{ $t('views.production.judgeWarn') }}</span>
           </div>
-          <label class="block text-xs text-slate-400">V 标题<input v-model="unit.title" class="control mt-1" @input="dirty = true" /></label>
-          <label class="block text-xs text-slate-400">整段视频提示词<button class="ml-2 text-sky-300" :disabled="busy || !!optimizing || !textVendor" @click="optimize('V', unit.id, 'prompt_video')">{{ optimizing === unit.id + ':prompt_video' ? '优化中…' : '优化提示词' }}</button><button class="ml-2 text-xs text-cyan-200" :disabled="busy" title="按当前各 S 的视频提示词重组整段内容，保留末尾整段补充" @click="recomposeUnit">从 S 重组</button><textarea v-model="unit.prompt_video" class="control mt-1" rows="6" @input="dirty = true" /></label>
-          <label class="block text-xs text-slate-400">整段负面提示词<textarea v-model="unit.negative" class="control mt-1" rows="2" @input="dirty = true" /></label>
+          <label class="block text-xs text-slate-400">{{ $t('views.production.vTitle') }}<input v-model="unit.title" class="control mt-1" @input="dirty = true" /></label>
+          <label class="block text-xs text-slate-400">{{ $t('views.production.unitPrompt') }}<button class="ml-2 text-sky-300" :disabled="busy || !!optimizing || !textVendor" @click="optimize('V', unit.id, 'prompt_video')">{{ optimizing === unit.id + ':prompt_video' ? $t('views.production.optimizing') : $t('views.production.job.optimize') }}</button><button class="ml-2 text-xs text-cyan-200" :disabled="busy" :title="$t('views.production.recomposeTitle')" @click="recomposeUnit">{{ $t('views.production.recompose') }}</button><textarea v-model="unit.prompt_video" class="control mt-1" rows="6" @input="dirty = true" /></label>
+          <label class="block text-xs text-slate-400">{{ $t('views.production.unitNegative') }}<textarea v-model="unit.negative" class="control mt-1" rows="2" @input="dirty = true" /></label>
           <div class="flex flex-wrap items-center gap-2">
-            <button class="btn btn-sm" :disabled="busy" title="保存本 V 的修改，并确认各 S 内容已汇总" @click="saveUnits(true)">确认 V 汇总</button>
-            <button class="btn btn-sm btn-ghost" :disabled="busy" title="将下一个 V 的 S 并入当前 V" @click="mergeNext">合并下一个 V</button>
-            <span class="text-xs text-slate-500">{{ unit.scene_ref || '未关联场景' }}</span>
+            <button class="btn btn-sm" :disabled="busy" :title="$t('views.production.confirmTitle')" @click="saveUnits(true)">{{ $t('views.production.confirmUnit') }}</button>
+            <button class="btn btn-sm btn-ghost" :disabled="busy" :title="$t('views.production.mergeNextTitle')" @click="mergeNext">{{ $t('views.production.mergeNext') }}</button>
+            <span class="text-xs text-slate-500">{{ unit.scene_ref || $t('views.production.noScene') }}</span>
           </div>
           <div class="space-y-2">
             <div class="flex flex-wrap gap-2">
-              <button class="ref-choice flex-1" :class="{active: refMode === 'grid'}" :disabled="busy" @click="setRefMode('grid')">故事板宫格（推荐）</button>
-              <button class="ref-choice flex-1" :class="{active: refMode === 'keyframes'}" :disabled="busy" @click="setRefMode('keyframes')">按 S 关键帧序列</button>
+              <button class="ref-choice flex-1" :class="{active: refMode === 'grid'}" :disabled="busy" @click="setRefMode('grid')">{{ $t('views.production.refGrid') }}</button>
+              <button class="ref-choice flex-1" :class="{active: refMode === 'keyframes'}" :disabled="busy" @click="setRefMode('keyframes')">{{ $t('views.production.refKeyframes') }}</button>
             </div>
             <div v-if="refMode === 'keyframes'" class="space-y-2">
-              <p class="text-xs text-slate-500">按 S 顺序引用已采用关键帧；缺图可在此生成。</p>
+              <p class="text-xs text-slate-500">{{ $t('views.production.keyframesHint') }}</p>
               <div class="flex flex-wrap gap-2">
               <template v-for="s in shots" :key="s.id">
                 <figure class="w-[124px]">
-                  <img v-if="keyframeThumb(s)" :src="pathUrl(keyframeThumb(s)!.path)" class="aspect-video w-full cursor-zoom-in rounded-md border border-white/10 object-cover" :alt="s.id" title="点击查看大图" @click="openImage(keyframeThumb(s)!.path, s.id + ' 关键帧')" />
+                  <img v-if="keyframeThumb(s)" :src="pathUrl(keyframeThumb(s)!.path)" class="aspect-video w-full cursor-zoom-in rounded-md border border-white/10 object-cover" :alt="s.id" :title="$t('views.production.zoom')" @click="openImage(keyframeThumb(s)!.path, $t('views.production.keyframeOf', { id: s.id }))" />
                   <div v-else class="flex aspect-video w-full flex-col items-center justify-center gap-1 rounded-md border border-dashed border-white/10 text-slate-500">
-                    <span class="text-[10px] text-amber-300">尚未生成</span>
-                    <button class="btn btn-sm" :disabled="busy || !vendor" @click="genShotImage(s)">{{ busy ? '…' : '生成' }}</button>
+                    <span class="text-[10px] text-amber-300">{{ $t('views.production.notGenerated') }}</span>
+                    <button class="btn btn-sm" :disabled="busy || !vendor" @click="genShotImage(s)">{{ busy ? '…' : $t('views.production.generate') }}</button>
                   </div>
                   <figcaption class="mt-0.5 flex items-center justify-between text-[10px]">
-                    <span :class="keyframeThumb(s)?.adopted ? 'text-emerald-300' : keyframeThumb(s) ? 'text-amber-300' : 'text-slate-500'">{{ s.id }}{{ keyframeThumb(s) ? (keyframeThumb(s)!.adopted ? ' 已采用' : ' 候选') : '' }}</span>
-                    <button v-if="keyframeThumb(s) && !keyframeThumb(s)!.adopted" class="text-sky-300" @click="chooseShot(s); adopt(latestImage(s)!)">采用</button>
+                    <span :class="keyframeThumb(s)?.adopted ? 'text-emerald-300' : keyframeThumb(s) ? 'text-amber-300' : 'text-slate-500'">{{ s.id }}{{ keyframeThumb(s) ? (keyframeThumb(s)!.adopted ? $t('views.production.adoptedSuffix') : $t('views.production.candidateSuffix')) : '' }}</span>
+                    <button v-if="keyframeThumb(s) && !keyframeThumb(s)!.adopted" class="text-sky-300" @click="chooseShot(s); adopt(latestImage(s)!)">{{ $t('views.production.adopt') }}</button>
                   </figcaption>
                 </figure>
               </template>
               </div>
             </div>
             <div v-else class="space-y-2">
-              <label class="block text-xs text-slate-400">宫格布局（留空采用默认 3×3）<button class="ml-2 text-sky-300" :disabled="busy || !!optimizing || !textVendor" @click="optimize('V', unit.id, 'prompt_grid')">{{ optimizing === unit.id + ':prompt_grid' ? '优化中…' : '优化布局' }}</button><textarea v-model="unit.prompt_grid" class="control mt-1" rows="2" placeholder="例：3×3；格1 叩首，格2 拎匣入场，格3 递牌；人物一致，格内无文字" @input="dirty = true" /></label>
+              <label class="block text-xs text-slate-400">{{ $t('views.production.gridLayoutV') }}<button class="ml-2 text-sky-300" :disabled="busy || !!optimizing || !textVendor" @click="optimize('V', unit.id, 'prompt_grid')">{{ optimizing === unit.id + ':prompt_grid' ? $t('views.production.optimizing') : $t('views.production.optimizeLayout') }}</button><textarea v-model="unit.prompt_grid" class="control mt-1" rows="2" :placeholder="$t('views.production.gridPhV')" @input="dirty = true" /></label>
               <div class="flex flex-wrap items-start gap-2">
                 <figure v-if="gridCandidate" class="w-[124px]">
                   <div class="aspect-video w-full overflow-hidden rounded-md border bg-black" :class="gridAdopted ? 'border-emerald-400/60' : 'border-white/10'">
-                    <img :src="pathUrl(outputPath(gridCandidate))" class="h-full w-full cursor-zoom-in object-cover" alt="故事板宫格" title="点击查看大图" @click="openImage(outputPath(gridCandidate), (unit?.label || '') + ' 故事板宫格')" />
+                    <img :src="pathUrl(outputPath(gridCandidate))" class="h-full w-full cursor-zoom-in object-cover" :alt="$t('views.production.storyGrid')" :title="$t('views.production.zoom')" @click="openImage(outputPath(gridCandidate), (unit?.label || '') + ' ' + $t('views.production.storyGrid'))" />
                   </div>
-                  <p class="mt-0.5 text-[10px]" :class="gridAdopted ? 'text-emerald-300' : 'text-amber-300'">{{ gridAdopted ? '已采用为宫格参考' : '候选 · 未采用' }}</p>
-                  <button v-if="!gridAdopted" class="mt-1 block text-[10px] text-sky-300" :disabled="busy" @click="adoptGrid(gridCandidate)">采用为宫格参考</button>
+                  <p class="mt-0.5 text-[10px]" :class="gridAdopted ? 'text-emerald-300' : 'text-amber-300'">{{ gridAdopted ? $t('views.production.gridAdoptedLabel') : $t('views.production.candidateNotAdopted') }}</p>
+                  <button v-if="!gridAdopted" class="mt-1 block text-[10px] text-sky-300" :disabled="busy" @click="adoptGrid(gridCandidate)">{{ $t('views.production.adoptGrid') }}</button>
                 </figure>
                 <div v-else class="flex aspect-video w-full max-w-[240px] flex-col items-center justify-center gap-1 rounded-md border border-dashed border-white/10 text-slate-500">
-                  <span class="text-xs text-amber-300">尚未生成</span>
-                  <button class="btn btn-sm" :disabled="busy || !vendor" @click="makeGrid()">{{ busy ? '生成中…' : '生成' }}</button>
+                  <span class="text-xs text-amber-300">{{ $t('views.production.notGenerated') }}</span>
+                  <button class="btn btn-sm" :disabled="busy || !vendor" @click="makeGrid()">{{ busy ? $t('common.generating') : $t('views.production.generate') }}</button>
                 </div>
                 <div class="space-y-1 self-center">
-                  <button v-if="gridCandidate" class="btn btn-sm btn-ghost" :disabled="busy || !vendor" @click="makeGrid()">重新生成宫格</button>
-                  <p class="text-xs text-slate-500">采用宫格图后，整 V 视频会以它为参考。</p>
+                  <button v-if="gridCandidate" class="btn btn-sm btn-ghost" :disabled="busy || !vendor" @click="makeGrid()">{{ $t('views.production.regenGrid') }}</button>
+                  <p class="text-xs text-slate-500">{{ $t('views.production.gridHint') }}</p>
                 </div>
               </div>
             </div>
@@ -504,64 +505,64 @@ onBeforeUnmount(() => window.clearInterval(timer))
           </div>
         </section>
       <div v-if="unit" class="space-y-3 rounded-xl border border-white/10 p-4">
-        <h2 class="text-sm font-black text-slate-200">S 转场镜头 <span class="text-xs font-normal text-slate-400">逐镜编辑关键帧、宫格或视频提示词</span></h2>
+        <h2 class="text-sm font-black text-slate-200">{{ $t('views.production.shotsHead') }}<span class="text-xs font-normal text-slate-400">{{ $t('views.production.shotsSub') }}</span></h2>
         <div class="reference-and-shots">
-          <aside class="space-y-2 text-xs"><b class="text-slate-300">本段引用素材</b>
+          <aside class="space-y-2 text-xs"><b class="text-slate-300">{{ $t('views.production.segAssets') }}</b>
             <div v-for="r in assetRefs" :key="r.token" class="overflow-hidden rounded-lg border border-white/10 bg-black/30">
-              <img v-if="r.image" :src="pathUrl(r.image)" class="aspect-video w-full cursor-zoom-in object-contain" :alt="r.name" title="点击查看大图" @click="openImage(r.image, r.name)" />
+              <img v-if="r.image" :src="pathUrl(r.image)" class="aspect-video w-full cursor-zoom-in object-contain" :alt="r.name" :title="$t('views.production.zoom')" @click="openImage(r.image, r.name)" />
               <div v-else class="flex aspect-video w-full flex-col items-center justify-center gap-1 text-slate-500">
-                <span class="text-amber-300">尚未生成</span>
-                <button class="btn btn-sm" :disabled="!!genningAsset" @click="genAsset(r.kind, r.id)">{{ genningAsset === r.kind + ':' + r.id ? '生成中…' : '生成' }}</button>
+                <span class="text-amber-300">{{ $t('views.production.notGenerated') }}</span>
+                <button class="btn btn-sm" :disabled="!!genningAsset" @click="genAsset(r.kind, r.id)">{{ genningAsset === r.kind + ':' + r.id ? $t('common.generating') : $t('views.production.generate') }}</button>
               </div>
-              <small class="block p-1 text-slate-400">{{ KIND_CN[r.kind] || '画风' }} · {{ r.name }}</small>
+              <small class="block p-1 text-slate-400">{{ kindLabel(r.kind, $t('views.production.kind.style')) }} · {{ r.name }}</small>
             </div>
-            <p v-if="!assetRefs.length" class="text-slate-500">本段无资产引用</p>
-            <RouterLink class="block text-slate-400" to="/studio/asset">查看 / 生成素材 →</RouterLink></aside>
+            <p v-if="!assetRefs.length" class="text-slate-500">{{ $t('views.production.noAssetRefs') }}</p>
+            <RouterLink class="block text-slate-400" to="/studio/asset">{{ $t('views.production.goAssets') }}</RouterLink></aside>
           <section class="min-w-0 space-y-4">
             <article v-for="s in shots" :key="s.id" class="shot-card" :class="{'selected': scope === 'S' && selectedShot === s.id}">
-              <header class="mb-3 flex flex-wrap items-center justify-between gap-2"><button class="font-bold text-sky-200" @click="chooseShot(s)">{{ s.id }} 转场镜头</button><label class="text-xs text-slate-400">时长（秒）<input :value="s.dur" type="number" min="0.1" step="0.1" class="control inline-block w-24 ml-2" @input="editShotDuration(s, $event)" /></label><button v-if="unit && unit.shot_ids[0] !== s.id" class="text-xs text-slate-400" @click="split(s.id)">从此镜拆为新 V</button></header>
+              <header class="mb-3 flex flex-wrap items-center justify-between gap-2"><button class="font-bold text-sky-200" @click="chooseShot(s)">{{ $t('views.production.shotHead', { id: s.id }) }}</button><label class="text-xs text-slate-400">{{ $t('views.production.durSec') }}<input :value="s.dur" type="number" min="0.1" step="0.1" class="control inline-block w-24 ml-2" @input="editShotDuration(s, $event)" /></label><button v-if="unit && unit.shot_ids[0] !== s.id" class="text-xs text-slate-400" @click="split(s.id)">{{ $t('views.production.splitHere') }}</button></header>
               <div class="shot-grid">
                 <div class="min-w-0 space-y-2">
                   <div class="flex gap-2">
-                    <select class="control min-w-0 flex-1" :value="kind === 'image' ? staticTabOf(s) : ''" :aria-label="s.id + ' 静态参考类型'" @change="onModeSelect($event, s)">
-                      <option value="" disabled>静态参考</option>
-                      <option value="keyframe">静态参考 · 关键帧</option>
-                      <option value="grid">静态参考 · 宫格</option>
+                    <select class="control min-w-0 flex-1" :value="kind === 'image' ? staticTabOf(s) : ''" :aria-label="$t('views.production.aria.staticType', { id: s.id })" @change="onModeSelect($event, s)">
+                      <option value="" disabled>{{ $t('views.production.staticRef') }}</option>
+                      <option value="keyframe">{{ $t('views.production.staticKeyframe') }}</option>
+                      <option value="grid">{{ $t('views.production.staticGrid') }}</option>
                     </select>
-                    <button class="ref-choice flex-1 text-center" :class="{active: kind === 'video'}" @click="kind = 'video'">动态视频</button>
+                    <button class="ref-choice flex-1 text-center" :class="{active: kind === 'video'}" @click="kind = 'video'">{{ $t('views.production.dynamicVideo') }}</button>
                   </div>
                   <template v-if="kind === 'image'">
                     <label v-if="staticTabOf(s) === 'keyframe'" class="block text-xs text-sky-300">
-                      <span>关键帧提示词</span><button class="ml-3 text-xs text-cyan-200" :aria-label="'优化 ' + s.id + ' 关键帧提示词'" :disabled="busy || !!optimizing || !textVendor" @click="optimize('S', s.id, 'prompt_image')">{{ optimizing === s.id + ':prompt_image' ? '优化中…' : '优化提示词' }}</button>
-                      <textarea v-model="s.prompt_image" :aria-label="s.id + ' 关键帧提示词'" class="control mt-2" rows="4" @input="dirty = true" />
+                      <span>{{ $t('views.production.keyframePrompt') }}</span><button class="ml-3 text-xs text-cyan-200" :aria-label="$t('views.production.aria.optimize', { id: s.id, field: $t('views.production.field.keyframe') })" :disabled="busy || !!optimizing || !textVendor" @click="optimize('S', s.id, 'prompt_image')">{{ optimizing === s.id + ':prompt_image' ? $t('views.production.optimizing') : $t('views.production.job.optimize') }}</button>
+                      <textarea v-model="s.prompt_image" :aria-label="$t('views.production.aria.field', { id: s.id, field: $t('views.production.field.keyframe') })" class="control mt-2" rows="4" @input="dirty = true" />
                     </label>
                     <label v-else class="block text-xs text-sky-300">
-                      <span>宫格布局</span><button class="ml-3 text-xs text-cyan-200" :aria-label="'优化 ' + s.id + ' 宫格提示词'" :disabled="busy || !!optimizing || !textVendor" @click="optimize('S', s.id, 'prompt_grid')">{{ optimizing === s.id + ':prompt_grid' ? '优化中…' : '优化布局' }}</button>
-                      <textarea v-model="s.prompt_grid" :aria-label="s.id + ' 宫格提示词'" class="control mt-2" rows="4" placeholder="分格布局说明。例：九宫格 3×3；格1 起手、格2 俯身、格3 按地叩首…所有格人物一致、格内无文字。留空=默认九宫格 3×3 按剧情顺序" @input="dirty = true" />
+                      <span>{{ $t('views.production.gridLayout') }}</span><button class="ml-3 text-xs text-cyan-200" :aria-label="$t('views.production.aria.optimize', { id: s.id, field: $t('views.production.field.grid') })" :disabled="busy || !!optimizing || !textVendor" @click="optimize('S', s.id, 'prompt_grid')">{{ optimizing === s.id + ':prompt_grid' ? $t('views.production.optimizing') : $t('views.production.optimizeLayout') }}</button>
+                      <textarea v-model="s.prompt_grid" :aria-label="$t('views.production.aria.field', { id: s.id, field: $t('views.production.field.grid') })" class="control mt-2" rows="4" :placeholder="$t('views.production.gridPhS')" @input="dirty = true" />
                     </label>
                   </template>
                   <template v-else>
                     <label class="block text-xs text-sky-300">
-                      <span>视频提示词</span><button class="ml-3 text-xs text-cyan-200" :aria-label="'优化 ' + s.id + ' 视频提示词'" :disabled="busy || !!optimizing || !textVendor" @click="optimize('S', s.id, 'prompt_video')">{{ optimizing === s.id + ':prompt_video' ? '优化中…' : '优化提示词' }}</button>
-                      <textarea v-model="s.prompt_video" :aria-label="s.id + ' 视频提示词'" class="control mt-2" rows="4" @input="dirty = true" />
+                      <span>{{ $t('views.production.videoPrompt') }}</span><button class="ml-3 text-xs text-cyan-200" :aria-label="$t('views.production.aria.optimize', { id: s.id, field: $t('views.production.field.video') })" :disabled="busy || !!optimizing || !textVendor" @click="optimize('S', s.id, 'prompt_video')">{{ optimizing === s.id + ':prompt_video' ? $t('views.production.optimizing') : $t('views.production.job.optimize') }}</button>
+                      <textarea v-model="s.prompt_video" :aria-label="$t('views.production.aria.field', { id: s.id, field: $t('views.production.field.video') })" class="control mt-2" rows="4" @input="dirty = true" />
                     </label>
-                    <p class="text-xs text-slate-500">在右侧设置视频参数并提交当前 S。</p>
+                    <p class="text-xs text-slate-500">{{ $t('views.production.videoHint') }}</p>
                   </template>
                   <div class="flex flex-wrap gap-2">
-                    <button v-if="kind === 'image' && staticTabOf(s) === 'grid'" class="btn btn-sm" :disabled="busy || !vendor" @click="makeGrid(s)">{{ busy ? '提交中…' : '生成本 S 宫格图' }}</button>
-                    <button v-if="scope !== 'S' || selectedShot !== s.id" class="btn btn-sm btn-ghost" @click="chooseShot(s)">设为当前镜头</button>
+                    <button v-if="kind === 'image' && staticTabOf(s) === 'grid'" class="btn btn-sm" :disabled="busy || !vendor" @click="makeGrid(s)">{{ busy ? $t('views.production.submitting') : $t('views.production.genShotGrid') }}</button>
+                    <button v-if="scope !== 'S' || selectedShot !== s.id" class="btn btn-sm btn-ghost" @click="chooseShot(s)">{{ $t('views.production.setCurrent') }}</button>
                   </div>
                 </div>
                 <aside class="shot-thumb">
                   <template v-if="thumbFor(s)">
-                    <img :src="pathUrl(thumbFor(s)!.path)" class="w-full cursor-zoom-in rounded-lg border border-white/10 object-contain" :alt="s.id + (thumbFor(s)!.adopted ? ' 已采用' : ' 候选')" title="点击查看大图" @click="openImage(thumbFor(s)!.path, s.id + (thumbFor(s)!.adopted ? ' 已采用关键帧' : ' 关键帧候选'))" />
+                    <img :src="pathUrl(thumbFor(s)!.path)" class="w-full cursor-zoom-in rounded-lg border border-white/10 object-contain" :alt="s.id + (thumbFor(s)!.adopted ? $t('views.production.adoptedSuffix') : $t('views.production.candidateSuffix'))" :title="$t('views.production.zoom')" @click="openImage(thumbFor(s)!.path, thumbFor(s)!.adopted ? $t('views.production.adoptedKeyframe', { id: s.id }) : $t('views.production.keyframeCandidate', { id: s.id }))" />
                     <div class="mt-1 flex items-center justify-between text-[10px]">
-                      <span :class="thumbFor(s)!.adopted ? 'text-emerald-300' : 'text-amber-300'">{{ thumbFor(s)!.adopted ? '当前采用' : '候选 · 未采用' }}</span>
-                      <button v-if="!thumbFor(s)!.adopted && latestImage(s)" class="text-sky-300" @click="chooseShot(s); adopt(latestImage(s)!)">采用</button>
+                      <span :class="thumbFor(s)!.adopted ? 'text-emerald-300' : 'text-amber-300'">{{ thumbFor(s)!.adopted ? $t('views.production.currentAdopted') : $t('views.production.candidateNotAdopted') }}</span>
+                      <button v-if="!thumbFor(s)!.adopted && latestImage(s)" class="text-sky-300" @click="chooseShot(s); adopt(latestImage(s)!)">{{ $t('views.production.adopt') }}</button>
                     </div>
                     <Versions v-if="thumbFor(s)!.adopted && s.keyframe" :path="s.keyframe.path" kind="image" @restored="load" />
                   </template>
-                  <div v-else class="flex h-full min-h-[120px] items-center justify-center rounded-lg border border-dashed border-white/10 px-2 text-center text-xs text-slate-500">尚未生成关键帧</div>
+                  <div v-else class="flex h-full min-h-[120px] items-center justify-center rounded-lg border border-dashed border-white/10 px-2 text-center text-xs text-slate-500">{{ $t('views.production.noKeyframe') }}</div>
                 </aside>
               </div>
             </article>
@@ -570,55 +571,55 @@ onBeforeUnmount(() => window.clearInterval(timer))
       </div>
       </main>
       <aside class="glass space-y-4 p-4">
-        <div><span class="text-xs text-slate-400">当前创作范围</span><h2 class="mt-1 font-bold text-sky-200">{{ scope === 'S' ? `${selectedShot} · 转场镜头` : `${unit?.label || 'V'} · 分镜视频` }}</h2></div>
-        <div class="flex gap-2"><button class="ref-choice flex-1 text-center" :class="{active: kind === 'image'}" :aria-pressed="kind === 'image'" @click="kind = 'image'">关键帧</button><button class="ref-choice flex-1 text-center" :class="{active: kind === 'video'}" :aria-pressed="kind === 'video'" @click="kind = 'video'">视频</button></div>
-        <label class="block text-xs text-slate-400">生成模型<select v-model="vendor" class="control mt-1"><option v-for="v in models" :key="v.id" :value="v.id">{{ v.label }} · {{ v.models[kind] }}</option></select></label>
-        <p v-if="vendor === 'chatgpt-queue'" class="text-xs text-slate-500">由 <a href="https://github.com/leeguooooo/image-use" target="_blank" rel="noopener">image-use / chrome-use</a> 提供。每个任务独立上传参考图、生成一张并回填。</p>
+        <div><span class="text-xs text-slate-400">{{ $t('views.production.currentScope') }}</span><h2 class="mt-1 font-bold text-sky-200">{{ scope === 'S' ? $t('views.production.scopeS', { id: selectedShot }) : $t('views.production.unitVideo', { label: unit?.label || 'V' }) }}</h2></div>
+        <div class="flex gap-2"><button class="ref-choice flex-1 text-center" :class="{active: kind === 'image'}" :aria-pressed="kind === 'image'" @click="kind = 'image'">{{ $t('views.production.keyframe') }}</button><button class="ref-choice flex-1 text-center" :class="{active: kind === 'video'}" :aria-pressed="kind === 'video'" @click="kind = 'video'">{{ $t('views.production.video') }}</button></div>
+        <label class="block text-xs text-slate-400">{{ $t('views.production.genModel') }}<select v-model="vendor" class="control mt-1"><option v-for="v in models" :key="v.id" :value="v.id">{{ v.label }} · {{ v.models[kind] }}</option></select></label>
+        <p v-if="vendor === 'chatgpt-queue'" class="text-xs text-slate-500">{{ $t('views.production.chatgptNote1') }}<a href="https://github.com/leeguooooo/image-use" target="_blank" rel="noopener">image-use / chrome-use</a>{{ $t('views.production.chatgptNote2') }}</p>
         <template v-if="kind === 'video'">
           <VideoSettings v-model="videoOptions" :capability="capability" />
-          <label v-if="['first_frame','first_last'].includes(videoOptions.mode || '') && tailMode !== 'tail_first_frame'" class="block text-xs text-slate-400">首帧来源<select v-model="firstShot" class="control" @change="saveOptions"><option v-for="s in currentShots" :key="s.id" :value="s.id">{{ s.id }} {{ s.keyframe ? '已采用关键帧' : '尚未采用关键帧' }}</option></select></label>
-          <label v-if="['last_frame','first_last'].includes(videoOptions.mode || '')" class="block text-xs text-slate-400">尾帧来源<select v-model="lastShot" class="control" @change="saveOptions"><option v-for="s in currentShots" :key="s.id" :value="s.id">{{ s.id }} {{ s.keyframe ? '已采用关键帧' : '尚未采用关键帧' }}</option></select></label>
-          <div v-if="capability?.transport === 'public_url' && videoOptions.mode !== 'text'" class="space-y-2"><label v-for="s in currentShots" :key="s.id" class="block text-xs">{{ s.id }} 对应帧公网 URL<input v-model="imageUrls[s.id]" class="control" placeholder="https://…" @change="saveOptions" /></label></div>
+          <label v-if="['first_frame','first_last'].includes(videoOptions.mode || '') && tailMode !== 'tail_first_frame'" class="block text-xs text-slate-400">{{ $t('views.production.firstSource') }}<select v-model="firstShot" class="control" @change="saveOptions"><option v-for="s in currentShots" :key="s.id" :value="s.id">{{ s.id }} {{ s.keyframe ? $t('views.production.hasKeyframe') : $t('views.production.noAdoptedKeyframe') }}</option></select></label>
+          <label v-if="['last_frame','first_last'].includes(videoOptions.mode || '')" class="block text-xs text-slate-400">{{ $t('views.production.lastSource') }}<select v-model="lastShot" class="control" @change="saveOptions"><option v-for="s in currentShots" :key="s.id" :value="s.id">{{ s.id }} {{ s.keyframe ? $t('views.production.hasKeyframe') : $t('views.production.noAdoptedKeyframe') }}</option></select></label>
+          <div v-if="capability?.transport === 'public_url' && videoOptions.mode !== 'text'" class="space-y-2"><label v-for="s in currentShots" :key="s.id" class="block text-xs">{{ $t('views.production.publicUrl', { id: s.id }) }}<input v-model="imageUrls[s.id]" class="control" placeholder="https://…" @change="saveOptions" /></label></div>
           <div v-if="videoOptions.mode === 'reference'" class="space-y-2 text-xs">
-            <p v-if="(!capability?.max_audio && audioUrls) || (!capability?.max_video && videoUrls)" class="text-amber-200">此前填写的不支持媒体已保留在设置中，本型号不会提交这些输入。</p>
+            <p v-if="(!capability?.max_audio && audioUrls) || (!capability?.max_video && videoUrls)" class="text-amber-200">{{ $t('views.production.unsupportedKept') }}</p>
             <MediaReferences v-if="capability?.max_audio" :key="currentTarget + 'audio'" v-model="audioUrls" :project="app.current" kind="audio" :limit="capability.max_audio" @change="saveOptions" />
             <MediaReferences v-if="capability?.max_video" :key="currentTarget + 'video'" v-model="videoUrls" :project="app.current" kind="video" :limit="capability.max_video" @change="saveOptions" />
           </div>
-          <button class="btn btn-sm btn-ghost" :disabled="busy" @click="saveOptions">保存视频参数</button>
-          <label class="block text-xs text-slate-400">当前生成时长（秒）<input :value="duration" type="number" step="0.1" min="0.1" class="control mt-1" @input="editDuration" /></label>
-          <p v-if="capability" class="text-xs text-slate-500">当前适配器：{{ capability.min_duration }}–{{ capability.max_duration }} 秒，最多 {{ capability.max_refs }} 张图</p>
+          <button class="btn btn-sm btn-ghost" :disabled="busy" @click="saveOptions">{{ $t('views.production.saveVideoOpts') }}</button>
+          <label class="block text-xs text-slate-400">{{ $t('views.production.curDuration') }}<input :value="duration" type="number" step="0.1" min="0.1" class="control mt-1" @input="editDuration" /></label>
+          <p v-if="capability" class="text-xs text-slate-500">{{ $t('views.production.adapter', { min: capability.min_duration, max: capability.max_duration, refs: capability.max_refs }) }}</p>
           <section class="reference-options space-y-4 rounded-xl border border-white/10 p-3">
-            <h3 class="text-sm font-bold text-sky-200">尾帧与角色音色</h3>
-            <fieldset><legend>尾帧关联</legend><div class="space-y-2 mt-2">
-              <button class="ref-choice" :class="{active: tailMode === ''}" :disabled="busy" @click="tailMode = ''; saveOptions()">独立镜头（不关联）</button>
-              <button class="ref-choice" :class="{active: tailMode === 'tail_context'}" :disabled="busy" @click="tailMode = 'tail_context'; saveOptions()">尾帧画面参考 · Vision 理解</button>
-              <button class="ref-choice" :class="{active: tailMode === 'tail_first_frame'}" :disabled="busy || !['first_frame','first_last'].includes(videoOptions.mode || '')" @click="tailMode = 'tail_first_frame'; saveOptions()">尾帧强制续接 · 作为首帧</button>
-              <select v-if="tailMode" v-model="tailItem" class="control" :disabled="busy" @change="saveOptions"><option value="">选择已完成的前序视频</option><option v-for="v in videos" :key="v.id" :value="v.id">{{ v.board }} · {{ v.shot_id || v.unit_id }} · {{ v.created_at }}</option></select>
+            <h3 class="text-sm font-bold text-sky-200">{{ $t('views.production.tailAndVoice') }}</h3>
+            <fieldset><legend>{{ $t('views.production.tailLink') }}</legend><div class="space-y-2 mt-2">
+              <button class="ref-choice" :class="{active: tailMode === ''}" :disabled="busy" @click="tailMode = ''; saveOptions()">{{ $t('views.production.tailNone') }}</button>
+              <button class="ref-choice" :class="{active: tailMode === 'tail_context'}" :disabled="busy" @click="tailMode = 'tail_context'; saveOptions()">{{ $t('views.production.tailContext') }}</button>
+              <button class="ref-choice" :class="{active: tailMode === 'tail_first_frame'}" :disabled="busy || !['first_frame','first_last'].includes(videoOptions.mode || '')" @click="tailMode = 'tail_first_frame'; saveOptions()">{{ $t('views.production.tailFirst') }}</button>
+              <select v-if="tailMode" v-model="tailItem" class="control" :disabled="busy" @change="saveOptions"><option value="">{{ $t('views.production.pickPrev') }}</option><option v-for="v in videos" :key="v.id" :value="v.id">{{ v.board }} · {{ v.shot_id || v.unit_id }} · {{ v.created_at }}</option></select>
               <select v-if="tailMode === 'tail_context'" v-model="visionVendor" class="control" :disabled="busy" @change="saveOptions"><option v-for="v in visionModels" :key="v.id" :value="v.id">{{ v.models.vision }}</option></select>
             </div></fieldset>
-            <fieldset><legend>角色音色</legend><div class="space-y-2 mt-2">
-              <button class="ref-choice" :class="{active: includeVoices && canBindVoices}" :disabled="busy || !canBindVoices" @click="includeVoices = true; saveOptions()">引用角色已绑定音色</button>
-              <button class="ref-choice" :class="{active: !includeVoices && canBindVoices}" :disabled="busy || !canBindVoices" @click="includeVoices = false; saveOptions()">不引用音色</button>
-              <p v-if="!canBindVoices" class="text-xs text-slate-500">当前模式或素材传输方式不支持直接引用本地音色；可用全能参考的音频 URL，或生成独立台词音轨。</p>
+            <fieldset><legend>{{ $t('views.production.voices') }}</legend><div class="space-y-2 mt-2">
+              <button class="ref-choice" :class="{active: includeVoices && canBindVoices}" :disabled="busy || !canBindVoices" @click="includeVoices = true; saveOptions()">{{ $t('views.production.voicesOn') }}</button>
+              <button class="ref-choice" :class="{active: !includeVoices && canBindVoices}" :disabled="busy || !canBindVoices" @click="includeVoices = false; saveOptions()">{{ $t('views.production.voicesOff') }}</button>
+              <p v-if="!canBindVoices" class="text-xs text-slate-500">{{ $t('views.production.voicesUnsupported') }}</p>
             </div></fieldset>
           </section>
         </template>
-        <p v-if="scope === 'V' && kind === 'image'" class="text-xs text-amber-300">请点击中间的 S 转场镜头，选择要生成的关键帧。</p>
-        <button class="btn w-full justify-center" :disabled="busy || !vendor || !currentTarget || (scope === 'V' && kind === 'image') || (kind === 'video' && !capability?.known)" @click="submitCurrent">{{ busy ? '提交中…' : `生成当前${scope === 'V' ? ' V 视频' : kind === 'image' ? ' S 关键帧' : ' S 视频'}` }}</button>
-        <p class="text-xs text-slate-500">后台执行，产出先进入候选，审核后再采用。</p>
-        <details class="text-xs"><summary class="text-sky-300">异常任务处理</summary><button class="mt-2 text-sky-300" :disabled="busy" @click="job('recover', true)">接管未确认请求</button></details>
+        <p v-if="scope === 'V' && kind === 'image'" class="text-xs text-amber-300">{{ $t('views.production.pickShotForKeyframe') }}</p>
+        <button class="btn w-full justify-center" :disabled="busy || !vendor || !currentTarget || (scope === 'V' && kind === 'image') || (kind === 'video' && !capability?.known)" @click="submitCurrent">{{ busy ? $t('views.production.submitting') : scope === 'V' ? $t('views.production.genCurrentV') : kind === 'image' ? $t('views.production.genCurrentSKey') : $t('views.production.genCurrentSVideo') }}</button>
+        <p class="text-xs text-slate-500">{{ $t('views.production.bgNote') }}</p>
+        <details class="text-xs"><summary class="text-sky-300">{{ $t('views.production.recoverHead') }}</summary><button class="mt-2 text-sky-300" :disabled="busy" @click="job('recover', true)">{{ $t('views.production.recover') }}</button></details>
         <section v-if="scope === 'V' && kind === 'video' && unit?.video_binding" class="space-y-2 rounded-xl border border-white/10 p-3">
-          <div class="flex items-center justify-between text-sm"><b>已采用视频</b><span v-if="unit.video_stale" class="text-xs text-amber-300">已采用视频待确认</span></div>
+          <div class="flex items-center justify-between text-sm"><b>{{ $t('views.production.adoptedVideo') }}</b><span v-if="unit.video_stale" class="text-xs text-amber-300">{{ $t('views.production.unitStatus.videoStale') }}</span></div>
           <video :src="pathUrl(unit.video_binding.path)" controls preload="metadata" class="w-full" />
-          <button class="btn btn-sm w-full justify-center" :disabled="busy || !vendor" title="按时间范围重做中间段并拼回原片" @click="openRedo">按时间范围修补</button>
-          <RouterLink to="/studio/redo" class="block text-center text-xs text-sky-300">逐帧选范围重拍 →</RouterLink>
+          <button class="btn btn-sm w-full justify-center" :disabled="busy || !vendor" :title="$t('views.production.redoTitle')" @click="openRedo">{{ $t('views.production.redoBtn') }}</button>
+          <RouterLink to="/studio/redo" class="block text-center text-xs text-sky-300">{{ $t('views.production.goRedo') }}</RouterLink>
         </section>
-        <section class="space-y-3 border-t border-white/10 pt-4"><div class="text-sm"><b>当前目标产出</b></div>
-          <article v-for="item in candidates" :key="item.id" class="rounded-lg bg-black/25 p-2"><p class="mb-2 text-xs text-slate-400">{{ item.status }} · {{ item.created_at }} <span v-if="elapsedText(item)" class="ml-1 font-bold text-sky-300">已运行 {{ elapsedText(item) }}</span> <span v-if="item.actual_duration">· {{ item.actual_duration }}s</span><span v-if="item.redo" class="ml-1 rounded bg-violet-900/60 px-1.5 py-0.5 text-violet-200" :title="item.redo.anchors ? `锚点：${item.redo.anchors.head} / ${item.redo.anchors.tail}` : ''">修补 {{ item.redo.t0 }}–{{ item.redo.t1 }}s</span></p>
+        <section class="space-y-3 border-t border-white/10 pt-4"><div class="text-sm"><b>{{ $t('views.production.outputs') }}</b></div>
+          <article v-for="item in candidates" :key="item.id" class="rounded-lg bg-black/25 p-2"><p class="mb-2 text-xs text-slate-400">{{ item.status }} · {{ item.created_at }} <span v-if="elapsedText(item)" class="ml-1 font-bold text-sky-300">{{ $t('views.production.running', { t: elapsedText(item) }) }}</span> <span v-if="item.actual_duration">· {{ item.actual_duration }}s</span><span v-if="item.redo" class="ml-1 rounded bg-violet-900/60 px-1.5 py-0.5 text-violet-200" :title="item.redo.anchors ? $t('views.production.anchors', { head: item.redo.anchors.head, tail: item.redo.anchors.tail }) : ''">{{ $t('views.production.patchRange', { t0: item.redo.t0, t1: item.redo.t1 }) }}</span></p>
             <video v-if="item.type === 'video' && outputPath(item)" :src="pathUrl(outputPath(item))" controls preload="metadata" class="w-full" />
-            <img v-else-if="outputPath(item)" :src="pathUrl(outputPath(item))" class="w-full cursor-zoom-in" :alt="item.shot_id" title="点击查看大图" @click="openImage(outputPath(item), (item.shot_id || item.unit_id || '') + ' 产出')" />
-            <p v-if="item.note" class="mt-2 break-words text-xs text-amber-200">{{ item.note }}</p><div class="mt-2 flex gap-2"><button v-if="item.status === 'done'" class="btn btn-sm" @click="adopt(item)">采用此{{ item.type === 'image' ? '关键帧' : '视频' }}</button><button v-if="!['queued','running'].includes(item.status)" class="btn btn-sm btn-ghost text-rose-300" :title="'删除候选与产物文件；已采用/被重拍引用的会被拒绝'" @click="delItem(item)">删除</button></div>
-          </article><p v-if="!candidates.length" class="text-xs text-slate-500">暂无候选</p>
+            <img v-else-if="outputPath(item)" :src="pathUrl(outputPath(item))" class="w-full cursor-zoom-in" :alt="item.shot_id" :title="$t('views.production.zoom')" @click="openImage(outputPath(item), $t('views.production.outputOf', { id: item.shot_id || item.unit_id || '' }))" />
+            <p v-if="item.note" class="mt-2 break-words text-xs text-amber-200">{{ item.note }}</p><div class="mt-2 flex gap-2"><button v-if="item.status === 'done'" class="btn btn-sm" @click="adopt(item)">{{ item.type === 'image' ? $t('views.production.adoptThisKeyframe') : $t('views.production.adoptThisVideo') }}</button><button v-if="!['queued','running'].includes(item.status)" class="btn btn-sm btn-ghost text-rose-300" :title="$t('views.production.delItemTitle')" @click="delItem(item)">{{ $t('common.delete') }}</button></div>
+          </article><p v-if="!candidates.length" class="text-xs text-slate-500">{{ $t('views.production.noCandidates') }}</p>
         </section>
       </aside>
     </div>
@@ -626,15 +627,15 @@ onBeforeUnmount(() => window.clearInterval(timer))
     <!-- 局部修补面板：视频预览 + 起止时间 + 提示词（预填原 prompt_video 可改），提交走 trackJob 既有模式 -->
     <div v-if="redoOpen && unit?.video_binding" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" @click.self="redoOpen = false">
       <div class="glass w-full max-w-xl space-y-3 p-4">
-        <div class="flex items-center justify-between"><b class="text-sky-200">局部修补 · {{ unit.label }}</b><button class="text-slate-400" @click="redoOpen = false">×</button></div>
+        <div class="flex items-center justify-between"><b class="text-sky-200">{{ $t('views.production.redoHead', { label: unit.label }) }}</b><button class="text-slate-400" @click="redoOpen = false">×</button></div>
         <video :src="pathUrl(unit.video_binding.path)" controls preload="metadata" class="w-full rounded-lg" @loadedmetadata="onRedoMeta" />
         <div class="flex gap-3 text-xs text-slate-400">
-          <label class="flex-1">起点（秒）<input v-model.number="redoT0" type="number" min="0" step="0.1" class="control mt-1" /></label>
-          <label class="flex-1">终点（秒）<input v-model.number="redoT1" type="number" min="0" step="0.1" class="control mt-1" /></label>
+          <label class="flex-1">{{ $t('views.production.redoStart') }}<input v-model.number="redoT0" type="number" min="0" step="0.1" class="control mt-1" /></label>
+          <label class="flex-1">{{ $t('views.production.redoEnd') }}<input v-model.number="redoT1" type="number" min="0" step="0.1" class="control mt-1" /></label>
         </div>
-        <p class="text-2xs text-slate-500">重做 {{ redoT0 }}–{{ redoT1 }}s（{{ redoLength }}s 新片段）：抽两端锚点帧走首尾帧模式生成，成功后自动拼回原片作为新候选；片段时长须落在所选模型的时长范围内（过短会按模型下限报错）。</p>
-        <label class="block text-xs text-slate-400">修补提示词<textarea v-model="redoPrompt" rows="4" class="control mt-1" /></label>
-        <button class="btn w-full" :disabled="redoBusy || !vendor || !redoLength" @click="submitRedo">{{ redoBusy ? '提交中…' : '提交修补任务' }}</button>
+        <p class="text-2xs text-slate-500">{{ $t('views.production.redoNote', { t0: redoT0, t1: redoT1, len: redoLength }) }}</p>
+        <label class="block text-xs text-slate-400">{{ $t('views.production.redoPrompt') }}<textarea v-model="redoPrompt" rows="4" class="control mt-1" /></label>
+        <button class="btn w-full" :disabled="redoBusy || !vendor || !redoLength" @click="submitRedo">{{ redoBusy ? $t('views.production.submitting') : $t('views.production.submitRedo') }}</button>
       </div>
     </div>
   </div>
