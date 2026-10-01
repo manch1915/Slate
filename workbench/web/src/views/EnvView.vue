@@ -425,7 +425,7 @@ onMounted(() => {
                 <td class="px-3 py-1.5 font-mono text-slate-300">{{ name }}</td>
                 <td class="px-3 py-1.5">
                   <span
-                    v-if="ver !== $t('views.env.missing')"
+                    v-if="ver !== 'missing' && ver !== '缺失'"
                     class="rounded-full bg-emerald-400/10 px-2 py-0.5 font-semibold text-emerald-300"
                   >{{ ver }}</span>
                   <span v-else class="rounded-full bg-rose-400/10 px-2 py-0.5 font-semibold text-rose-300">{{ $t('views.env.missing') }}</span>

@@ -352,7 +352,7 @@ class AssetGenerationReferenceTests(unittest.TestCase):
             single = asset_image_preflight(str(project), "prop", "child", vendor)
             self.assertTrue(single["ok"])
             self.assertTrue(single.get("notes"))
-            self.assertIn("降级", single["notes"][0])
+            self.assertIn("falling back", single["notes"][0])
 
             batch = asset_image_preflight(str(project), "all", None, vendor)
             self.assertTrue(batch["ok"])

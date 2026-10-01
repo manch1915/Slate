@@ -31,7 +31,7 @@ function stats(p: Project): CardStats {
   const videos =
     (p.dirs['拉片素材'] || []).filter((f) => /\.(mp4|mov|mkv)$/i.test(f)).length +
     (p.dirs['成片'] || []).filter((f) => /\.(mp4|mov|mkv)$/i.test(f)).length
-  const lapian = (p.dirs['拉片'] || []).filter((f) => !f.startsWith('[帧序列]'))
+  const lapian = (p.dirs['拉片'] || []).filter((f) => !f.startsWith('[帧序列]') && !f.startsWith('[frames]'))
   const analyses = new Set(
     lapian.filter((f) => f.includes('/')).map((f) => f.split('/')[0])
   ).size || (lapian.some((f) => /analysis\.json|拉片.*\.md/i.test(f)) ? 1 : 0)
@@ -40,7 +40,10 @@ function stats(p: Project): CardStats {
     const files = p.dirs[m.key] || []
     // 帧目录大量 jpg 会被服务端折叠成 "[帧序列] xxx/（共N个文件）"，同样算已有产物
     const ok = files.some(
-      (f) => (!f.startsWith('[帧序列]') && m.re.test(f)) || (m.key === '逐帧' && f.startsWith('[帧序列]'))
+      (f) => {
+        const folded = f.startsWith('[帧序列]') || f.startsWith('[frames]')
+        return (!folded && m.re.test(f)) || (m.key === '逐帧' && folded)
+      }
     )
     return { label: t('views.home.ring.' + m.key), color: m.color, value: (ok ? 1 : 0) as number }
   })

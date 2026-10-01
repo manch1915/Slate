@@ -70,7 +70,7 @@ async function generate() {
     if (r.ok && r.id) {
       phase.value = 'build'
       const j = await trackJob(r.id, t('views.white3d.sceneJob', { name: storyboard.value }))
-      const m = (j.out || '').match(/已生成脚本[:：]\s*(.+)/)
+      const m = (j.out || '').match(/(?:已生成脚本[:：]|Generated script:)\s*(.+)/)
       if (m) genScript.value = m[1].trim()
       if (j.success) { toast(t('views.white3d.scriptBuildDone'), 'ok'); await loadBasics() }
       else mcpToast(j.err || t('views.white3d.jobFailed'))

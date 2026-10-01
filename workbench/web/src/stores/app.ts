@@ -27,7 +27,7 @@ export function projectFiles(sub: string, re?: RegExp): string[] {
   const visible = list.filter((f) => {
     const name = String(f || '')
     const parts = name.split('/')
-    return !name.startsWith('[帧序列]')
+    return !name.startsWith('[帧序列]') && !name.startsWith('[frames]')
       && !name.startsWith('.')
       && !parts.some((part) => part.startsWith('.'))
       && !parts.some((part) => part === '_versions.json' || part.startsWith('_versions.'))

@@ -24,7 +24,7 @@ class RequestContext:
 def route(method, *paths):
     """声明精确路由，注册表构建时检查重复，不在装饰时修改全局表。"""
     if method not in ('GET', 'POST', 'HEAD') or not paths or any(not p.startswith('/') for p in paths):
-        raise ValueError('无效路由声明')
+        raise ValueError(tr('Invalid route declaration'))
     def decorate(handler):
         handler.route_keys = (*getattr(handler, 'route_keys', ()), *((method, p) for p in paths))
         return handler
@@ -36,7 +36,7 @@ def build_route_table(handler_class):
     for handler in vars(handler_class).values():
         for key in getattr(handler, 'route_keys', ()):
             if key in table:
-                raise ValueError(f'重复路由：{key[0]} {key[1]}')
+                raise ValueError(tr('Duplicate route: {method} {path}', method=key[0], path=key[1]))
             table[key] = handler
     return MappingProxyType(table)
 
@@ -195,11 +195,11 @@ def ensure_providers():
 
 def mask_key(k):
     """api_key 掩码：前4****后4。"""
-    return (k[:4]+"****"+k[-4:]) if k and len(k)>8 else ("已配置" if k else "")
+    return (k[:4]+"****"+k[-4:]) if k and len(k)>8 else ("configured" if k else "")
 def looks_masked(k):
     """判断是否为掩码值（防止前端/脚本把掩码当真 key 回传落盘）。"""
     k=str(k or "")
-    return "****" in k or k=="已配置"
+    return "****" in k or k in ("configured", "已配置")
 def load_vendors():
     ensure_providers()
     try: return json.load(open(PROV,encoding="utf-8")).get("vendors") or []
@@ -326,7 +326,7 @@ def scan_projects():
                     gs=[g for g in sorted(os.listdir(fp))
                         if not g.startswith(".") and os.path.isfile(os.path.join(fp,g))]
                     if len(gs)>20 and all(os.path.splitext(g)[1].lower() in (".png", ".jpg", ".jpeg", ".webp") for g in gs):
-                        arts.setdefault(sub,[]).append("[帧序列] %s/（共%d个文件，已折叠）"%(f,len(gs)))
+                        arts.setdefault(sub,[]).append(tr("[frames] {name}/ ({n} files, collapsed)", name=f, n=len(gs)))
                     else:
                         for g in gs: arts.setdefault(sub,[]).append(f+"/"+g)
                 else:
@@ -363,7 +363,7 @@ def detect_packages():
                      ("openpyxl","openpyxl"),("rapidocr_onnxruntime","rapidocr_onnxruntime"),
                      ("faster-whisper","faster_whisper"),("transformers","transformers")]:
         try: out[mod]=md.version(name)
-        except Exception: out[mod]="缺失"
+        except Exception: out[mod]="missing"
     return out
 def detect_env():
     """本机环境检测：python/ffmpeg/包/blender/MCP。"""
@@ -406,7 +406,7 @@ def restore_jobs(h):
             jid=rec.get("id")
             if not isinstance(jid,int): continue
             if rec.get("status")=="running":
-                rec["status"]="interrupted"; rec["err"]=(rec.get("err") or "")+"[服务重启，任务中断]"
+                rec["status"]="interrupted"; rec["err"]=(rec.get("err") or "")+tr("[Server restarted, job interrupted]")
                 try: json.dump(rec,open(os.path.join(JOBSDIR,f),"w",encoding="utf-8"),ensure_ascii=False,indent=1)  # 写回磁盘
                 except Exception: pass
             h.JOBS[jid]=rec; h.JOBSEQ[0]=max(h.JOBSEQ[0],jid)
@@ -449,12 +449,12 @@ def asset_image_preflight(project_dir, kind="all", asset_id=None, vendor=None):
     planner = tools_mod("gen_asset_images.py")
     if planner is None or not hasattr(planner, "collect_asset_image_plan"):
         return {"ok": False, "plans": [], "needs_edit": False,
-                "err": "资产生成规划模块缺失，无法确认参考图模式"}
+                "err": tr("Asset generation planner missing; cannot confirm reference-image mode")}
     try:
         plans = planner.collect_asset_image_plan(project_dir, kind, asset_id, vendor.get("id", ""))
     except Exception as exc:
         return {"ok": False, "plans": [], "needs_edit": False,
-                "err": "读取资产引用失败：" + scrub_err(exc)}
+                "err": tr("Failed to read asset references: {err}", err=scrub_err(exc))}
     result["plans"] = plans
     edit_plans = [p for p in plans if p.get("mode") == "edit"]
     result["needs_edit"] = bool(edit_plans)
@@ -462,7 +462,7 @@ def asset_image_preflight(project_dir, kind="all", asset_id=None, vendor=None):
         models = vendor.get("models") if isinstance(vendor.get("models"), dict) else {}
         if not str(models.get("image_edit") or "").strip():
             return {**result, "ok": False,
-                    "err": "资产包含派生引用，将使用 Qwen Image Edit；请先在环境页配置 local-comfyui 的 image_edit 模型。"}
+                    "err": tr("Asset has derived references and will use Qwen Image Edit; configure the local-comfyui image_edit model on the Environment page first.")}
         extra = vendor.get("extra") if isinstance(vendor.get("extra"), dict) else {}
         workflow = str(extra.get("image_edit_workflow_path") or "").strip()
         # 自定义工作流是可选覆盖；未填写时明确标记内置路径，不再把
@@ -475,7 +475,7 @@ def asset_image_preflight(project_dir, kind="all", asset_id=None, vendor=None):
             try:
                 comfy.load_workflow_template(workflow)
             except Exception as exc:
-                return {**result, "ok": False, "err": "改图工作流不可用：" + scrub_err(exc)}
+                return {**result, "ok": False, "err": tr("Image-edit workflow unavailable: {err}", err=scrub_err(exc))}
     # 缺图不再拦截：母图本就不依赖任何参考；derived_from 派生图的父图
     # 缺失时由生成器降级为无参考生成并告警。批量任务中已排队生成的父
     # 资产不算缺失；其余降级情况作为 note 透出，便于前端提示。
@@ -492,7 +492,7 @@ def asset_image_preflight(project_dir, kind="all", asset_id=None, vendor=None):
         ]
         if external_missing:
             refs = ", ".join(str(x) for x in external_missing[:4])
-            notes.append(f"{plan.get('kind')}/{plan.get('id')} 派生母图缺失（{refs}），将降级为无参考生成")
+            notes.append(tr("{kind}/{ident} parent image missing ({refs}); falling back to generation without references", kind=plan.get("kind"), ident=plan.get("id"), refs=refs))
     if notes:
         result["notes"] = notes
     return result
@@ -524,36 +524,36 @@ def storyboard_episode_error(project_dir, episode_id=None):
                 book = {}
             episodes = book.get("episodes") or []
             if not any(str(item.get("id")) == ep for item in episodes if isinstance(item, dict)):
-                return f"分集 {ep} 不存在"
+                return tr("Episode {ep} not found", ep=ep)
         text = repo.load_script(project_dir, ep or None) if repo else ""
     except Exception as exc:
-        return f"读取剧本文本失败：{exc}"
+        return tr("Failed to read script text: {exc}", exc=exc)
     if str(text or "").strip():
         return None
-    label = f"分集 {ep}" if ep else "项目"
-    return f"{label}暂无剧本文本，请先在①剧本分集页导入或扩写"
+    label = tr("episode {ep}", ep=ep) if ep else tr("project")
+    return tr("{label} has no script text yet; import or expand it on the script/episodes page first", label=label)
 def load_storyboard(project_dir, board_name):
     """安全读取项目分镜 JSON，返回 (规范化文件名, board)。"""
     d=os.path.abspath(project_dir or "")
     nm=safe_proj(board_name)
     p=os.path.join(d,"分镜",nm) if d and nm else ""
     if not (nm.lower().endswith(".json") and p and under(os.path.join(d,"分镜"),os.path.realpath(p)) and os.path.isfile(p)):
-        raise ValueError("分镜不存在")
+        raise ValueError(tr("Storyboard not found"))
     try:
         board=json.load(open(p,encoding="utf-8"))
     except Exception as exc:
-        raise ValueError("分镜 JSON 无法读取: "+str(exc))
+        raise ValueError(tr("Could not read storyboard JSON: {err}", err=scrub_err(exc)))
     if not isinstance(board,dict) or not isinstance(board.get("shots"),list):
-        raise ValueError("分镜格式无效")
+        raise ValueError(tr("Invalid storyboard format"))
     return nm,board,p
 def assemble_create_shot(project_dir, board_name, shot_id, prompt_user="", media_type="image", vendor_id="", mode="generate"):
     """服务端统一调用阶段提示词编译器，避免前端自行拼提示词造成漂移。"""
     mod=tools_mod("prompt_assembler.py")
     compiler=tools_mod("prompt_compiler.py")
-    if not mod: raise ValueError("prompt_assembler.py 缺失")
+    if not mod: raise ValueError(tr("prompt_assembler.py missing"))
     nm,board,p=load_storyboard(project_dir,board_name)
     shot=next((s for s in board.get("shots",[]) if str(s.get("id"))==str(shot_id)),None)
-    if not isinstance(shot,dict): raise ValueError("镜头不存在: "+str(shot_id))
+    if not isinstance(shot,dict): raise ValueError(tr("Shot not found: {id}", id=shot_id))
     stage = "storyboard_image" if str(media_type).lower() == "image" else "video"
     compiled = None
     if compiler and getattr(compiler, "compile_stage_prompt", None):
@@ -627,7 +627,7 @@ class H(BaseHTTPRequestHandler):
         with self.ENV_INSTALL_LOCK, self.JLOCK:
             active = [j for j in self.JOBS.values() if j.get("status") == "running" or j.get("process_alive")]
             if any(j.get("step") == "environment_install" for j in active) or (step == "environment_install" and active):
-                raise ValueError("环境安装与生成任务不能同时运行，请等待当前任务结束")
+                raise ValueError(tr("Environment install and generation jobs cannot run at the same time; wait for the current job to finish"))
             self.JOBSEQ[0]+=1; jid=self.JOBSEQ[0]
             self.JOBS[jid]={"id":jid,"step":step,"status":"running","out":"","err":"","lang":current_lang(),"cmd":[os.path.basename(c) for c in cmd],
                             "fullcmd":list(cmd),"attempts":1,"attempt_id":f"{jid}-a1",
@@ -643,6 +643,13 @@ class H(BaseHTTPRequestHandler):
         （AI 解构长片 69 镜约 1h+，3600s 会误杀；超时 err 标明原因）。"""
         with self.JLOCK: job_lang=(self.JOBS.get(jid) or {}).get("lang") or current_lang()   # поток не наследует язык запроса
         def work():
+            token=set_lang(job_lang)
+            try:
+                self._run_job_attempt(jid,cmd,attempt_id,job_lang)
+            finally:
+                reset_lang(token)
+        threading.Thread(target=work,daemon=True).start()
+    def _run_job_attempt(self,jid,cmd,attempt_id,job_lang):
             ok=False; err=""
             timed_out=[False]
             p=None
@@ -674,8 +681,8 @@ class H(BaseHTTPRequestHandler):
                         self._persist_job(jid); buf=[]; n=0; last=now
                 p.wait()
                 ok=p.returncode==0
-                if not ok: err=("服务端看门狗超时（>4h）已强制终止，可在对应页面重试或分段运行"
-                                if timed_out[0] else "退出码 %s"%p.returncode)
+                if not ok: err=(tr("Server watchdog timeout (>4h); the job was killed. Retry from the page or run it in smaller chunks")
+                                if timed_out[0] else tr("exit code {code}", code=p.returncode))
                 if buf:
                     with self.JLOCK:
                         j=self.JOBS.get(jid)
@@ -696,7 +703,6 @@ class H(BaseHTTPRequestHandler):
                     j["finished_at"]=time.time()
                     if j.get("started_at"): j["elapsed"]=round(j["finished_at"]-j["started_at"],1)
             self._persist_job(jid)
-        threading.Thread(target=work,daemon=True).start()
     def _send(self,code,ct,body,extra=None):
         if ct.startswith('application/json'):
             from error_utils import scrub_payload
@@ -761,7 +767,7 @@ class H(BaseHTTPRequestHandler):
                     length = int(self.headers.get('Content-Length', 0))
                     if length < 0: raise ValueError('negative length')
                 except ValueError:
-                    return self._request_error(400, 'Content-Length 无效')
+                    return self._request_error(400, tr('Invalid Content-Length'))
             ctx = RequestContext(url, query, length)
             # ---- 认证闸门（N85）：口令未配置时只放行首次设置流程；已配置则校验签名会话 ----
             gate = self._auth_gate(method, url.path)
@@ -775,8 +781,8 @@ class H(BaseHTTPRequestHandler):
                     import io
                     raw=self.rfile.read(length)
                     try: parsed=json.loads(raw.decode('utf-8') or '{}')
-                    except (ValueError,UnicodeError): return self._request_error(400,'JSON 解析失败')
-                    if not isinstance(parsed,dict): return self._request_error(400,'JSON 请求体必须是对象')
+                    except (ValueError,UnicodeError): return self._request_error(400,tr('JSON parse failed'))
+                    if not isinstance(parsed,dict): return self._request_error(400,tr('JSON body must be an object'))
                     # 请求处理后恢复原始流，避免破坏 keep-alive 下一个请求。
                     original=self.rfile
                     self.rfile=io.BytesIO(raw)
@@ -785,13 +791,13 @@ class H(BaseHTTPRequestHandler):
                 else:
                     handler(self, ctx)
                 if not self._response_started:
-                    self._request_error(500, '接口处理完成但没有响应')
+                    self._request_error(500, tr('Handler finished without sending a response'))
                 return
             if method == 'GET':
                 return self._static_or_not_found(ctx)
             return self._send(404, 'text/plain', b'404')
         except json.JSONDecodeError:
-            self._request_error(400, 'JSON 解析失败')
+            self._request_error(400, tr('JSON parse failed'))
         except Exception as e:
             self._request_error(500, scrub_err(e))
     @route('GET', '/', '/index.html')
@@ -799,7 +805,7 @@ class H(BaseHTTPRequestHandler):
         u, q = ctx.url, ctx.query
         p=os.path.join(WEBDIST,"index.html")
         if not os.path.isfile(p):
-            return self._send(503, "text/html; charset=utf-8", "<meta charset=utf-8><h1>新版前端尚未构建</h1><p>请在 workbench/web 执行 npm ci，再执行 npm run build，然后刷新本页。</p>".encode("utf-8"), {"Cache-Control": "no-store"})
+            return self._send(503, "text/html; charset=utf-8", tr("<meta charset=utf-8><h1>Frontend is not built yet</h1><p>Run npm ci and npm run build in workbench/web, then refresh.</p>").encode("utf-8"), {"Cache-Control": "no-store"})
         self.send_response(200); self.send_header("Content-Type","text/html; charset=utf-8")
         self.send_header("Cache-Control","no-store, no-cache, must-revalidate"); self.send_header("Pragma","no-cache")
         body=open(p,"rb").read(); self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body); return
@@ -880,7 +886,7 @@ class H(BaseHTTPRequestHandler):
         jid=int(q.get("id",["0"])[0])
         j=self.job_record(jid)
         if j and j.get("status")=="interrupted": j=dict(j)  # 重启后恢复的历史任务
-        return self._send(200,"application/json; charset=utf-8",json.dumps(j or {"err":"无此任务","lost":True},ensure_ascii=False).encode())
+        return self._send(200,"application/json; charset=utf-8",json.dumps(j or {"err":tr("No such job"),"lost":True},ensure_ascii=False).encode())
 
     @route('GET', '/api/file')
     def route_get_api_file(self, ctx):
@@ -893,16 +899,16 @@ class H(BaseHTTPRequestHandler):
             rel="projects/"+safe_proj(project)+"/"+rel.lstrip("/\\")
         p=safe_video(rel)
         if p and _deny_file(p):
-            return self._send(403,"text/plain; charset=utf-8","禁止访问敏感文件".encode())
+            return self._send(403,"text/plain; charset=utf-8",tr("Access to this file is forbidden").encode())
         if p and not p.lower().endswith(MEDIA_EXT):
-            return self._send(403,"text/plain; charset=utf-8","文件类型不在允许范围".encode())
+            return self._send(403,"text/plain; charset=utf-8",tr("File type is not allowed").encode())
         if p:
             try:
                 with open(p, encoding="utf-8", errors="replace") as fh:
                     return self._send(200,"text/plain; charset=utf-8",fh.read().encode())
             except Exception as e:
                 # 不外传 str(e)：里面常带 Windows 绝对路径与 Errno 细节（N65 残留）
-                return self._send(500,"text/plain; charset=utf-8",("文件读取失败（"+type(e).__name__+"）").encode())
+                return self._send(500,"text/plain; charset=utf-8",tr("Failed to read file ({exc})", exc=type(e).__name__).encode())
         return self._send(404,"text/plain",b"not found")
 
     @route('GET', '/media')
@@ -910,7 +916,7 @@ class H(BaseHTTPRequestHandler):
         u, q = ctx.url, ctx.query
         rel=q.get("p",[""])[0]; pth=safe_video(rel)
         if pth and (_deny_file(pth) or not pth.lower().endswith(MEDIA_EXT)):
-            return self._send(403,"text/plain; charset=utf-8","禁止访问该文件".encode())
+            return self._send(403,"text/plain; charset=utf-8",tr("Access to this file is forbidden").encode())
         if pth:
             size=os.path.getsize(pth); rng=self.headers.get("Range"); ct={".mp4":"video/mp4",".mp3":"audio/mpeg",".jpg":"image/jpeg",".png":"image/png",".webp":"image/webp",".mkv":"video/x-matroska",".mov":"video/quicktime",".wav":"audio/wav",".m4a":"audio/x-m4a",".mp3":"audio/mpeg",".aac":"audio/aac",".ogg":"audio/ogg",".blend":"application/octet-stream",".py":"text/plain; charset=utf-8",".xlsx":"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",".html":"text/html; charset=utf-8",".json":"application/json"}.get(os.path.splitext(pth)[1].lower(),"application/octet-stream")
             fh=open(pth,"rb")
@@ -953,7 +959,7 @@ class H(BaseHTTPRequestHandler):
                     v["first_shot"]=({"id":sh[0].get("id"),"t_in":sh[0].get("t_in"),"t_out":sh[0].get("t_out")} if sh else None)
                     v["first_t"]=sh[0].get("t_in") if sh else None
                     v["last_t"]=sh[-1].get("t_out") if sh else None
-                except Exception: v["err"]="analysis.json 读取失败"
+                except Exception: v["err"]=tr("Failed to read analysis.json")
         return self._send(200,"application/json; charset=utf-8",json.dumps(vers,ensure_ascii=False).encode())
 
     @route('GET', '/api/analysis/get')
@@ -963,7 +969,7 @@ class H(BaseHTTPRequestHandler):
         p=os.path.join(d,"拉片",nm,"analysis.json") if d and nm else ""
         if p and under(d,p) and os.path.isfile(p):
             return self._send(200,"application/json; charset=utf-8",open(p,"rb").read())
-        return self._send(404,"application/json",json.dumps({"err":"版本不存在"},ensure_ascii=False).encode())
+        return self._send(404,"application/json",json.dumps({"err":tr("Version not found")},ensure_ascii=False).encode())
 
     @route('GET', '/api/white/board')
     def route_get_api_white_board(self, ctx):
@@ -973,7 +979,7 @@ class H(BaseHTTPRequestHandler):
         p=os.path.join(d,"分镜",nm) if d and nm else ""
         if p and nm.lower().endswith(".json") and under(d,p) and os.path.isfile(p):
             return self._send(200,"application/json; charset=utf-8",open(p,"rb").read())
-        return self._send(404,"application/json",json.dumps({"err":"分镜不存在"},ensure_ascii=False).encode())
+        return self._send(404,"application/json",json.dumps({"err":tr("Storyboard not found")},ensure_ascii=False).encode())
 
     @route('GET', '/api/creation/diagrams')
     def route_get_api_creation_diagrams(self, ctx):
@@ -997,7 +1003,7 @@ class H(BaseHTTPRequestHandler):
         d=proj_dir(q.get("project",[""])[0]); nm=safe_proj(q.get("name",[""])[0])
         p=os.path.join(d,"拉片",nm,nm+"_分镜脚本.xlsx") if d and nm else ""
         if not (p and under(d,p) and os.path.isfile(p)):
-            return self._send(404,"application/json",json.dumps({"err":"xlsx 不存在，请先生成"},ensure_ascii=False).encode())
+            return self._send(404,"application/json",json.dumps({"err":tr("xlsx not found; generate it first")},ensure_ascii=False).encode())
         try:
             from openpyxl import load_workbook
             wb=load_workbook(p,read_only=True,data_only=True)
@@ -1005,7 +1011,7 @@ class H(BaseHTTPRequestHandler):
             wb.close()
             return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":True,"sheets":sheets},ensure_ascii=False).encode())
         except Exception as e:
-            return self._send(500,"application/json",json.dumps({"err":"xlsx 解析失败:"+scrub_err(e)},ensure_ascii=False).encode())
+            return self._send(500,"application/json",json.dumps({"err":tr("xlsx parse failed: {err}", err=scrub_err(e))},ensure_ascii=False).encode())
 
     @route('GET', '/api/frames')
     def route_get_api_frames(self, ctx):
@@ -1014,7 +1020,7 @@ class H(BaseHTTPRequestHandler):
         p=os.path.join(d,"逐帧","每秒","frames_manifest.json") if d else ""
         if p and os.path.isfile(p):
             return self._send(200,"application/json; charset=utf-8",open(p,"rb").read())
-        return self._send(404,"application/json",json.dumps({"err":"尚未抽取每秒帧"},ensure_ascii=False).encode())
+        return self._send(404,"application/json",json.dumps({"err":tr("1fps frames have not been extracted yet")},ensure_ascii=False).encode())
 
     @route('GET', '/api/lines')
     def route_get_api_lines(self, ctx):
@@ -1033,7 +1039,7 @@ class H(BaseHTTPRequestHandler):
         d=proj_dir(q.get("project",[""])[0])
         kind=str(q.get("kind",[""])[0] or "").strip()
         if not d:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目不存在"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Project not found")},ensure_ascii=False).encode())
         try:
             mod=tools_mod("asset_registry.py")
             registry=mod.AssetRegistry(d)
@@ -1053,7 +1059,7 @@ class H(BaseHTTPRequestHandler):
         KEY={"character":"characters","scene":"scenes","prop":"props"}
         PFIELD={"character":"sheet_prompt","scene":"image_prompt","prop":"image_prompt"}
         if not d or not ident or kind not in ZONE:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"project/kind/id 参数不合法"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid project/kind/id")},ensure_ascii=False).encode())
         item=None
         read_err=""
         fp=os.path.join(d,"素材",ZONE[kind]+".json")
@@ -1065,11 +1071,11 @@ class H(BaseHTTPRequestHandler):
                     if str(it.get("id"))==ident: item=it; break
             except Exception as exc:
                 # 读不动档案 ≠ 资产不存在：报"资产不存在"会把用户支去重建档案
-                read_err=f"{os.path.basename(fp)} 读取失败：{exc}"
+                read_err=tr("Failed to read {name}: {exc}", name=os.path.basename(fp), exc=exc)
         if read_err:
             return self._send(500,"application/json; charset=utf-8",json.dumps({"ok":False,"err":read_err},ensure_ascii=False).encode())
         if not item:
-            return self._send(404,"application/json",json.dumps({"ok":False,"err":"资产不存在"},ensure_ascii=False).encode())
+            return self._send(404,"application/json",json.dumps({"ok":False,"err":tr("Asset not found")},ensure_ascii=False).encode())
         sl=tools_mod("skill_lib.py")
         subject=str(item.get(PFIELD[kind]) or "").strip()
         style_text,src=sl.resolve_asset_style_text(d,item.get("style"),item.get("style_prompt"))
@@ -1105,7 +1111,7 @@ class H(BaseHTTPRequestHandler):
         d=proj_dir(q.get("project",[""])[0]); nm=safe_proj(q.get("storyboard",[""])[0] or q.get("name",[""])[0])
         p=os.path.realpath(os.path.join(d,"分镜",nm)) if d and nm else ""
         if not d or not nm.lower().endswith(".json") or not under(d,p) or not os.path.isfile(p):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目/分镜不合法"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid project/storyboard")},ensure_ascii=False).encode())
         try:
             mod=tools_mod("actor_pipeline.py")
             board,revision=mod._read_board(p)
@@ -1141,7 +1147,7 @@ class H(BaseHTTPRequestHandler):
                         # 探针跑不动时不能默默留在 ready：页面会显示"表演已就绪"而其实没核过。
                         # 状态值不改（该报 stale 还是 unknown 属产品口径），先把原因带出去并留日志。
                         check_err = f"{type(exc).__name__}: {exc}"
-                        print(f"[表演] {sid} 过期探针失败 -> 状态仍报 {status}；原因：{check_err}", flush=True)
+                        print(f"[表演] {sid} stale probe failed -> status still {status}; reason: {check_err}", flush=True)
                 if shot.get("performance_locked") or shot.get("acting_locked"):
                     status="locked"
                 shots.append({"id":sid,"dur":shot.get("dur"),"speaker":shot.get("speaker") or "",
@@ -1162,10 +1168,10 @@ class H(BaseHTTPRequestHandler):
         # 项目制作规格（E05）：缺文件返回完整默认值，exists 标记用户是否配置过
         d=proj_dir(q.get("project",[""])[0])
         if not d:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目不存在"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Project not found")},ensure_ascii=False).encode())
         mod=tools_mod("brief.py")
         if mod is None:
-            return self._send(500,"application/json",json.dumps({"ok":False,"err":"brief.py 缺失"},ensure_ascii=False).encode())
+            return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("brief.py missing")},ensure_ascii=False).encode())
         return self._send(200,"application/json; charset=utf-8",json.dumps(
             {"ok":True,"brief":mod.load_brief(d),"exists":mod.has_brief(d)},ensure_ascii=False).encode())
 
@@ -1175,10 +1181,10 @@ class H(BaseHTTPRequestHandler):
         u, q = ctx.url, ctx.query
         d=proj_dir(q.get("project",[""])[0])
         if not d:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目不存在"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Project not found")},ensure_ascii=False).encode())
         mod=tools_mod("story_units.py")
         if mod is None:
-            return self._send(500,"application/json",json.dumps({"ok":False,"err":"story_units.py 缺失"},ensure_ascii=False).encode())
+            return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("story_units.py missing")},ensure_ascii=False).encode())
         units=mod.load_units(d)
         outline=dict(units["outline"] or {})
         eps=[]
@@ -1218,7 +1224,7 @@ class H(BaseHTTPRequestHandler):
         u, q = ctx.url, ctx.query
         d=proj_dir(q.get("project",[""])[0])
         if not d:
-            return self._send(400,"application/json",json.dumps({"err":"项目不存在"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"err":tr("Project not found")},ensure_ascii=False).encode())
         def _rd(name):
             p=os.path.join(d,"剧本",name)
             return json.load(open(p,encoding="utf-8")) if os.path.isfile(p) else None
@@ -1313,7 +1319,7 @@ class H(BaseHTTPRequestHandler):
         rel=q.get("p",[""])[0]
         pth=os.path.normpath(os.path.join(VIDEO,rel))
         if not under(VIDEO,pth):
-            return self._send(400,"application/json",json.dumps({"err":"路径越界"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"err":tr("Path out of bounds")},ensure_ascii=False).encode())
         import importlib.util as _iu
         _sp=_iu.spec_from_file_location("versions",os.path.join(TOOLS,"versions.py"))
         m=_iu.module_from_spec(_sp); _sp.loader.exec_module(m)
@@ -1328,7 +1334,7 @@ class H(BaseHTTPRequestHandler):
         body=json.loads(self.rfile.read(ln).decode("utf-8","replace") or b"{}")
         paths=body.get("paths") if isinstance(body,dict) else None
         if not isinstance(paths,list) or not paths:
-            return self._send(400,"application/json; charset=utf-8",json.dumps({"ok":False,"err":"paths 须为非空数组"},ensure_ascii=False).encode())
+            return self._send(400,"application/json; charset=utf-8",json.dumps({"ok":False,"err":tr("paths must be a non-empty array")},ensure_ascii=False).encode())
         vmod=tools_mod("versions.py")
         if vmod is None:
             import importlib.util as _iu
@@ -1405,7 +1411,7 @@ class H(BaseHTTPRequestHandler):
         u, q = ctx.url, ctx.query
         m=tools_mod("billing.py")
         if m is None:
-            return self._send(500,"application/json",json.dumps({"err":"billing 模块缺失"},ensure_ascii=False).encode())
+            return self._send(500,"application/json",json.dumps({"err":tr("billing module missing")},ensure_ascii=False).encode())
         month=(q.get("month",[""])[0] or "").strip() or None
         return self._send(200,"application/json; charset=utf-8",json.dumps(m.summary(month),ensure_ascii=False).encode())
 
@@ -1415,7 +1421,7 @@ class H(BaseHTTPRequestHandler):
         u, q = ctx.url, ctx.query
         m=tools_mod("billing.py")
         if m is None:
-            return self._send(500,"application/json",json.dumps({"err":"billing 模块缺失"},ensure_ascii=False).encode())
+            return self._send(500,"application/json",json.dumps({"err":tr("billing module missing")},ensure_ascii=False).encode())
         try: limit=max(1,min(500,int(q.get("limit",["100"])[0])))
         except (TypeError,ValueError): limit=100
         month=(q.get("month",[""])[0] or "").strip() or None
@@ -1434,7 +1440,7 @@ class H(BaseHTTPRequestHandler):
         p=os.path.join(d,"拉片",nm,"讲解.md") if d and nm else ""
         if p and under(d,p) and os.path.isfile(p):
             return self._send(200,"application/json; charset=utf-8",json.dumps({"md":open(p,encoding="utf-8",errors="replace").read()},ensure_ascii=False).encode())
-        return self._send(404,"application/json",json.dumps({"err":"讲解不存在（先运行讲解生成）"},ensure_ascii=False).encode())
+        return self._send(404,"application/json",json.dumps({"err":tr("Commentary not found (generate it first)")},ensure_ascii=False).encode())
 
     @route('GET', '/api/explain/preflight')
     def route_get_api_explain_preflight(self, ctx):
@@ -1475,9 +1481,9 @@ class H(BaseHTTPRequestHandler):
             try:
                 with open(p,encoding='utf-8') as fp: data=json.load(fp)
                 if not isinstance(data,dict) or not isinstance(data.get('items',[]),list) or not all(isinstance(i,dict) for i in data.get('items',[])):
-                    raise ValueError('创作索引结构不合法')
+                    raise ValueError(tr('Invalid creation index structure'))
             except (ValueError,UnicodeError):
-                return self._send_run_json(500,{'ok':False,'err':'创作索引 creation.json 损坏，请从版本恢复；未覆盖原文件','code':'CREATION_INDEX_CORRUPT'})
+                return self._send_run_json(500,{'ok':False,'err':tr('creation.json is corrupt; restore it from versions. The original file was not overwritten'),'code':'CREATION_INDEX_CORRUPT'})
             data['items'] = [i for i in data.get('items', []) if i.get('type') in ('image', 'video', 'music', 'speech')]
             return self._send_run_json(200, data)
         return self._send(200,"application/json",json.dumps({"items":[]},ensure_ascii=False).encode())
@@ -1486,10 +1492,10 @@ class H(BaseHTTPRequestHandler):
     def route_get_api_create_chatgpt_jobs(self, ctx):
         u, q = ctx.url, ctx.query
         if chatgpt_queue is None:
-            return self._send(500,"application/json",json.dumps({"ok":False,"err":"ChatGPT 队列模块缺失"},ensure_ascii=False).encode())
+            return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("ChatGPT queue module missing")},ensure_ascii=False).encode())
         d=proj_dir(q.get("project",[""])[0])
         if not d:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"project 必填"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("project is required")},ensure_ascii=False).encode())
         try:
             limit=int(q.get("limit",["100"])[0])
             rows=chatgpt_queue.list_jobs(d, board=q.get("board",[None])[0], status=q.get("status",[None])[0], limit=limit)
@@ -1501,10 +1507,10 @@ class H(BaseHTTPRequestHandler):
     def route_get_api_create_chatgpt_job(self, ctx):
         u, q = ctx.url, ctx.query
         if chatgpt_queue is None:
-            return self._send(500,"application/json",json.dumps({"ok":False,"err":"ChatGPT 队列模块缺失"},ensure_ascii=False).encode())
+            return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("ChatGPT queue module missing")},ensure_ascii=False).encode())
         d=proj_dir(q.get("project",[""])[0]); iid=str(q.get("id",[""])[0] or "")
         if not d or not iid:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"project/id 必填"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("project/id are required")},ensure_ascii=False).encode())
         try:
             return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":True,"job":chatgpt_queue.get_job(d,iid)},ensure_ascii=False).encode())
         except Exception as exc:
@@ -1514,10 +1520,10 @@ class H(BaseHTTPRequestHandler):
     def route_get_api_create_chatgpt_run(self, ctx):
         u, q = ctx.url, ctx.query
         if chatgpt_run_api is None:
-            return self._send_run_json(500,{"ok":False,"err":"ChatGPT 运行接口模块缺失"})
+            return self._send_run_json(500,{"ok":False,"err":tr("ChatGPT run API module missing")})
         d=proj_dir(q.get("project",[""])[0]); run_id=str(q.get("run_id",[""])[0] or "")
         if not d:
-            return self._send_run_json(400,{"ok":False,"err":"project 必填"})
+            return self._send_run_json(400,{"ok":False,"err":tr("project is required")})
         try:
             run=image_use_runner.status(d,run_id)
             return self._send_run_json(200,{"ok":True,"run":run})
@@ -1530,11 +1536,11 @@ class H(BaseHTTPRequestHandler):
         d=proj_dir(q.get("project",[""])[0]); name=safe_proj(q.get("board",[""])[0])
         pid=safe_proj(q.get("panel_id",[""])[0])
         if not d or not name or not pid:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"画格草稿参数不合法"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid panel draft parameters")},ensure_ascii=False).encode())
         filename=os.path.splitext(name)[0]+"_"+pid+".json"
         path=os.path.join(d,"创作","画格草稿",filename)
         if not under(d,path) or not os.path.isfile(path):
-            return self._send(404,"application/json",json.dumps({"ok":False,"err":"画格草稿不存在"},ensure_ascii=False).encode())
+            return self._send(404,"application/json",json.dumps({"ok":False,"err":tr("Panel draft not found")},ensure_ascii=False).encode())
         return self._send(200,"application/json; charset=utf-8",open(path,"rb").read())
 
     @route('GET', '/api/create/coverage')
@@ -1542,14 +1548,14 @@ class H(BaseHTTPRequestHandler):
         u, q = ctx.url, ctx.query
         d=proj_dir(q.get("project",[""])[0]); board_name=safe_proj(q.get("board",[""])[0])
         if not d or not board_name:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"project/board 必填"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("project/board are required")},ensure_ascii=False).encode())
         try:
             nm,board,_=load_storyboard(d,board_name)
             mf=os.path.join(d,"创作","creation.json")
             data=json.load(open(mf,encoding="utf-8")) if os.path.isfile(mf) else {"items":[]}
             mod=tools_mod("creation_store.py")
             mtype=str(q.get("type",["image"])[0])
-            if mtype not in ("image","video"): raise ValueError("type 须为 image|video")
+            if mtype not in ("image","video"): raise ValueError(tr("type must be image|video"))
             result=mod.coverage_matrix(data.get("items",[]) if isinstance(data,dict) else [],
                                        [s.get("id") for s in board.get("shots",[]) if isinstance(s,dict) and s.get("id")],
                                        media_type=mtype)
@@ -1581,16 +1587,16 @@ class H(BaseHTTPRequestHandler):
         if not auth_service.configured():
             # 首次使用：页面放行到 /login（口令设置入口），API 一律 401+need_setup
             if path.startswith(('/api', '/media', '/src')):
-                return self._send(401, 'application/json', json.dumps({'ok': False, 'err': '需要先设置管理员口令', 'need_setup': True}, ensure_ascii=False).encode())
+                return self._send(401, 'application/json', json.dumps({'ok': False, 'err': tr('Admin password must be set first'), 'need_setup': True}, ensure_ascii=False).encode())
             if method == 'GET':
                 return None if path == '/login' else self._redirect('/login')
-            return self._send(401, 'application/json', json.dumps({'ok': False, 'err': '需要先设置管理员口令', 'need_setup': True}, ensure_ascii=False).encode())
+            return self._send(401, 'application/json', json.dumps({'ok': False, 'err': tr('Admin password must be set first'), 'need_setup': True}, ensure_ascii=False).encode())
         if path.startswith(('/api', '/media', '/src')):
-            return self._send(401, 'application/json', json.dumps({'ok': False, 'err': '未登录'}, ensure_ascii=False).encode())
+            return self._send(401, 'application/json', json.dumps({'ok': False, 'err': tr('Not signed in')}, ensure_ascii=False).encode())
         if method == 'GET':
             if path == '/login': return None   # SPA 登录页（已登录时前端自动跳回首页）
             return self._redirect('/login')
-        return self._send(401, 'application/json', json.dumps({'ok': False, 'err': '未登录'}, ensure_ascii=False).encode())
+        return self._send(401, 'application/json', json.dumps({'ok': False, 'err': tr('Not signed in')}, ensure_ascii=False).encode())
 
     def _redirect(self, location):
         self.send_response(302); self.send_header('Location', location)
@@ -1611,7 +1617,7 @@ class H(BaseHTTPRequestHandler):
         client = self.client_address[0] if self.client_address else ''
         if client not in ('127.0.0.1', '::1'):
             return self._send(403, 'application/json', json.dumps(
-                {'ok': False, 'err': '首次设置管理员口令只能在服务器本机浏览器（127.0.0.1）操作'}, ensure_ascii=False).encode())
+                {'ok': False, 'err': tr('The first admin password can only be set from a browser on this machine (127.0.0.1)')}, ensure_ascii=False).encode())
         body = json.loads(self.rfile.read(ctx.content_length).decode('utf-8', 'replace') or b'{}')
         try:
             token = auth_service.setup(str(body.get('password') or ''))
@@ -1752,12 +1758,12 @@ class H(BaseHTTPRequestHandler):
         name=str(body.get("project") or "").replace("/","").replace("\\","").strip()
         ptype=str(body.get("type") or "拆片")
         if ptype not in ("拆片","制作"):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"type 须为 拆片|制作"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("type must be 拆片|制作")},ensure_ascii=False).encode())
         if not name or len(name)>60:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目名不合法"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid project name")},ensure_ascii=False).encode())
         d=os.path.join(VIDEO,"projects",name)
         if os.path.isdir(d):
-            return self._send(409,"application/json",json.dumps({"ok":False,"err":"项目已存在:"+name},ensure_ascii=False).encode())
+            return self._send(409,"application/json",json.dumps({"ok":False,"err":tr("Project already exists: {name}", name=name)},ensure_ascii=False).encode())
         subs=["拉片素材","分镜","创作","素材","演员","推演","台词"]+(["剧本"] if ptype=="制作" else ["拉片","白模","深度","逐帧","成片"])
         for sub in subs: os.makedirs(os.path.join(d,sub),exist_ok=True)
         json.dump({"type":ptype,"created_at":time.strftime("%Y-%m-%d %H:%M")},
@@ -1773,13 +1779,13 @@ class H(BaseHTTPRequestHandler):
         name=str(body.get("project") or "").strip()
         # 项目名合法性：必须是 projects/ 根下单层目录名，禁分隔符/上跳/隐藏名，从源头挡住路径穿越
         if not name or name.startswith(".") or "/" in name or "\\" in name:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目名不合法"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid project name")},ensure_ascii=False).encode())
         root=os.path.normpath(os.path.join(VIDEO,"projects"))
         src=os.path.normpath(os.path.join(root,name))
         if os.path.dirname(src)!=root or not under(root,src):
-            return self._send(403,"application/json",json.dumps({"ok":False,"err":"路径越界"},ensure_ascii=False).encode())
+            return self._send(403,"application/json",json.dumps({"ok":False,"err":tr("Path out of bounds")},ensure_ascii=False).encode())
         if not os.path.isdir(src):
-            return self._send(404,"application/json",json.dumps({"ok":False,"err":"项目不存在:"+name},ensure_ascii=False).encode())
+            return self._send(404,"application/json",json.dumps({"ok":False,"err":tr("Project not found: {name}", name=name)},ensure_ascii=False).encode())
         bin_dir=os.path.join(root,".回收站")
         os.makedirs(bin_dir,exist_ok=True)
         base="%s_%s"%(name,time.strftime("%Y%m%d_%H%M%S")); dst=os.path.join(bin_dir,base)
@@ -1791,9 +1797,9 @@ class H(BaseHTTPRequestHandler):
         except OSError:
             try: shutil.move(src,dst)   # rename 失败（占用/跨卷等）兜底，仍是移动不复制删除
             except Exception as e:
-                return self._send(500,"application/json",json.dumps({"ok":False,"err":"移入回收站失败:"+scrub_err(e)},ensure_ascii=False).encode())
+                return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("Failed to move to recycle bin: {err}", err=scrub_err(e))},ensure_ascii=False).encode())
         rel=os.path.relpath(dst,VIDEO).replace(os.sep,"/")
-        return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":True,"recycled":rel,"msg":"项目「%s」已移入回收站（%s），可手动找回或清空"%(name,rel)},ensure_ascii=False).encode())
+        return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":True,"recycled":rel,"msg":tr("Project “{name}” was moved to the recycle bin ({rel}); you can restore or empty it later", name=name, rel=rel)},ensure_ascii=False).encode())
 
     @route('GET', '/api/media-gateway')
     def route_get_media_gateway(self, ctx):
@@ -1852,7 +1858,7 @@ class H(BaseHTTPRequestHandler):
         try:
             from reference_media import list_media
             project = safe_proj(ctx.query.get('project', [''])[0])
-            if not project: raise ValueError('请选择项目')
+            if not project: raise ValueError(tr('Please select a project'))
             rows = list_media(proj_dir(project), ctx.query.get('kind', [''])[0])
             return self._send(200, 'application/json', json.dumps({'ok': True, 'items': rows}, ensure_ascii=False).encode())
         except Exception as e:
@@ -1863,7 +1869,7 @@ class H(BaseHTTPRequestHandler):
         try:
             from reference_media import upload
             project = safe_proj(ctx.query.get('project', [''])[0])
-            if not project: raise ValueError('请选择项目')
+            if not project: raise ValueError(tr('Please select a project'))
             row = upload(proj_dir(project), ctx.query.get('kind', [''])[0], ctx.query.get('name', [''])[0], self.rfile, ctx.content_length)
             return self._send(200, 'application/json', json.dumps({'ok': True, **row}, ensure_ascii=False).encode())
         except Exception as e:
@@ -1874,7 +1880,7 @@ class H(BaseHTTPRequestHandler):
     def route_post_voice_upload(self, ctx):
         try:
             project = safe_proj(ctx.query.get('project', [''])[0])
-            if not project: raise ValueError('请选择项目')
+            if not project: raise ValueError(tr('Please select a project'))
             row = tools_mod('voice_assets.py').upload_voice(proj_dir(project), ctx.query.get('name', [''])[0], self.rfile, ctx.content_length)
             return self._send(200, 'application/json', json.dumps({'ok': True, 'voice': row}, ensure_ascii=False).encode())
         except Exception as e:
@@ -1888,10 +1894,10 @@ class H(BaseHTTPRequestHandler):
         proj=q.get("project",[""])[0].replace("/","").replace("\\","")
         fn=os.path.basename(q.get("name",[""])[0])
         if not proj or not fn.lower().endswith((".mp4",".mkv",".mov")):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目名或文件名不合法"}).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid project or file name")}).encode())
         d=os.path.join(VIDEO,"projects",proj,"拉片素材"); os.makedirs(d,exist_ok=True)
         dst=os.path.join(d,fn)
-        if os.path.exists(dst): return self._send(409,"application/json",json.dumps({"ok":False,"err":"同名文件已存在:"+fn}).encode())
+        if os.path.exists(dst): return self._send(409,"application/json",json.dumps({"ok":False,"err":tr("A file with this name already exists: {name}", name=fn)}).encode())
         with open(dst,"wb") as f:
             left=ln
             while left>0:
@@ -1910,10 +1916,10 @@ class H(BaseHTTPRequestHandler):
         src=str(body.get("src") or "")
         sp=safe_video_abs(src) if os.path.isabs(src) else safe_dl(os.path.basename(src))
         if not proj or not sp:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目或源文件不合法"}).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid project or source file")}).encode())
         d=os.path.join(VIDEO,"projects",proj,"拉片素材"); os.makedirs(d,exist_ok=True)
         fn=os.path.basename(sp); dst=os.path.join(d,fn)
-        if os.path.exists(dst): return self._send(409,"application/json",json.dumps({"ok":False,"err":"同名文件已存在:"+fn}).encode())
+        if os.path.exists(dst): return self._send(409,"application/json",json.dumps({"ok":False,"err":tr("A file with this name already exists: {name}", name=fn)}).encode())
         try: shutil.copyfile(sp,dst)
         except Exception as e: return self._send(500,"application/json",json.dumps({"ok":False,"err":scrub_err(e)}).encode())
         return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":True,"path":"projects/"+proj+"/拉片素材/"+fn},ensure_ascii=False).encode())
@@ -1927,7 +1933,7 @@ class H(BaseHTTPRequestHandler):
         rel=str(body.get("path") or body.get("p") or "")
         p=os.path.normpath(os.path.join(VIDEO,rel))
         if not under(VIDEO,p) or not os.path.isfile(p) or not p.lower().endswith(".blend"):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"blend 文件不合法"}).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid blend file")}).encode())
         try:
             os.startfile(p)
             return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":True,"opened":os.path.basename(p)},ensure_ascii=False).encode())
@@ -1942,10 +1948,10 @@ class H(BaseHTTPRequestHandler):
         body=json.loads(self.rfile.read(ln).decode("utf-8","replace") or b"{}")
         d=proj_dir(body.get("project")); rel=str(body.get("path") or "")
         if not d or not rel:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"参数不合法"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid parameters")},ensure_ascii=False).encode())
         p=os.path.normpath(os.path.join(d,rel.replace("/",os.sep)))
         if not under(d,p) or p==d:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"路径越界"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Path out of bounds")},ensure_ascii=False).encode())
         rel_in=os.path.relpath(p,d).replace(os.sep,"/")
         zone=rel_in.split("/")[0]
         PRODUCT_ZONES={"拉片","分镜","白模","深度","逐帧","成片","三维探索","白模3D","创作","素材","演员","推演","台词"}
@@ -1953,20 +1959,20 @@ class H(BaseHTTPRequestHandler):
         if "/" not in rel_in:
             # 项目根目录散放文件：仅 AI 归属 sidecar（可再生），台词脚本.json 等校对产物不开放角标删除
             if not (rel_in.startswith("AI归属") and ext==".json"):
-                return self._send(400,"application/json",json.dumps({"ok":False,"err":"根目录仅支持删除 AI归属*.json"},ensure_ascii=False).encode())
+                return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Project root only allows deleting AI归属*.json")},ensure_ascii=False).encode())
         elif zone=="拉片素材":
             if ext not in (".srt",".txt"):
-                return self._send(400,"application/json",json.dumps({"ok":False,"err":"拉片素材/ 内只允许删除 srt/txt 提取产物，源视频不在删除范围"},ensure_ascii=False).encode())
+                return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Inside 拉片素材/ only extracted srt/txt files can be deleted, not source video")},ensure_ascii=False).encode())
         elif zone not in PRODUCT_ZONES:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"只能删除产物区文件（"+ "/".join(sorted(PRODUCT_ZONES))+"）"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Only files in product folders can be deleted ({zones})", zones="/".join(sorted(PRODUCT_ZONES)))},ensure_ascii=False).encode())
         if os.path.isdir(p):
             # 目录删除仅限 逐帧/ 与 创作/（逐帧产物、创作条目目录）；拉片版本目录走「删除版本」（含 _versions 清理）
             if zone not in ("逐帧","创作"):
-                return self._send(400,"application/json",json.dumps({"ok":False,"err":"该目录请走对应页面的删除入口（拉片版本删除/创作条目删除）"},ensure_ascii=False).encode())
+                return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Delete this folder from its own page (analysis version delete / creation item delete)")},ensure_ascii=False).encode())
             shutil.rmtree(p,ignore_errors=True)
             return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":True,"deleted":rel_in,"kind":"dir"},ensure_ascii=False).encode())
         if not os.path.isfile(p) or not p.lower().endswith(MEDIA_EXT):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"文件不存在或类型不在产物范围"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("File not found or not in a product folder")},ensure_ascii=False).encode())
         try: os.remove(p)
         except Exception as e:
             return self._send(500,"application/json",json.dumps({"ok":False,"err":scrub_err(e)},ensure_ascii=False).encode())
@@ -1978,7 +1984,7 @@ class H(BaseHTTPRequestHandler):
         ln = ctx.content_length
         jid=int(q.get("id",["0"])[0])
         j=self.job_record(jid)
-        return self._send(200,"application/json; charset=utf-8",json.dumps(j or {"err":"无此任务","lost":True},ensure_ascii=False).encode())
+        return self._send(200,"application/json; charset=utf-8",json.dumps(j or {"err":tr("No such job"),"lost":True},ensure_ascii=False).encode())
 
     ENV_INSTALL_LOCK = threading.RLock()
 
@@ -1993,7 +1999,7 @@ class H(BaseHTTPRequestHandler):
             with self.JLOCK:
                 active = any(j.get("status") == "running" or j.get("process_alive") for j in self.JOBS.values())
             if active:
-                return self._send(409, "application/json", json.dumps({"err": "请等待运行中的任务结束后安装环境"}, ensure_ascii=False).encode())
+                return self._send(409, "application/json", json.dumps({"err": tr("Wait for running jobs to finish before installing the environment")}, ensure_ascii=False).encode())
             jid = self.spawn_job("environment_install", [sys.executable, os.path.join(TOOLS, "install_environment.py"), *groups])
         return self._send(202, "application/json", json.dumps({"ok": True, "id": jid, "job": True}).encode())
 
@@ -2004,12 +2010,12 @@ class H(BaseHTTPRequestHandler):
         body=json.loads(self.rfile.read(ln).decode("utf-8","replace") or b"{}")
         new=body.get("vendors")
         if not isinstance(new,list):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"vendors 须为数组"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("vendors must be an array")},ensure_ascii=False).encode())
         old={v.get("id"):v for v in load_vendors()}
         clean=[]
         for v in new:
             if not isinstance(v,dict) or not str(v.get("id") or "").strip():
-                return self._send(400,"application/json",json.dumps({"ok":False,"err":"厂商缺少 id"},ensure_ascii=False).encode())
+                return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Vendor is missing id")},ensure_ascii=False).encode())
             vid=str(v["id"]).strip()
             o=old.get(vid,{})
             om=o.get("models") or {}; oe=o.get("endpoints") or {}
@@ -2061,17 +2067,17 @@ class H(BaseHTTPRequestHandler):
         kind=str(body.get("kind") or "").strip() or None
         draft=body.get("draft") if isinstance(body.get("draft"),dict) and body.get("draft") else None
         if kind and kind not in KINDS:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"kind 须为 text/vision/image/image_edit/video/music/speech"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("kind must be text/vision/image/image_edit/video/music/speech")},ensure_ascii=False).encode())
         v=next((x for x in load_vendors() if x.get("id")==vid),None)
         if not v and not draft:
-            return self._send(404,"application/json",json.dumps({"ok":False,"err":"厂商不存在"},ensure_ascii=False).encode())
+            return self._send(404,"application/json",json.dumps({"ok":False,"err":tr("Vendor not found")},ensure_ascii=False).encode())
         v=vendor_with_draft(v,draft)   # 有 draft 用草稿配置（api_key 空回落落盘）
         # 测试允许未启用配置；启用只控制生成入口。
         v = dict(v, enabled=True)
         models=v.get("models") or {}
         if vid=="chatgpt-queue":
             state=image_use_runtime.status()
-            return self._send_run_json(200,{"ok":state["installed"],"kind":"image","note":state["note"],"err":"请先安装 chrome-use" if not state["installed"] else ""})
+            return self._send_run_json(200,{"ok":state["installed"],"kind":"image","note":state["note"],"err":tr("Install chrome-use first") if not state["installed"] else ""})
         if vid=="local-comfyui" and (kind in (None,"image","image_edit","video")):
             try:
                 af=tools_mod("llm_openai.py")
@@ -2082,14 +2088,14 @@ class H(BaseHTTPRequestHandler):
                 available=client.list_models(timeout=8)
                 selected=models.get(kind or "image")
                 if not selected or selected not in available:
-                    raise ValueError("ComfyUI 模型未配置或不在 diffusion_models 中")
+                    raise ValueError(tr("ComfyUI model is not configured or not in diffusion_models"))
                 if kind=="video":
                     required={"MiniMaxH3ImageToVideo","MiniMaxH3ReferenceToVideo","SaveVideo"}
                     nodes=adapter._json("GET","/object_info",timeout=15)
                     if not required.issubset(nodes):
-                        raise ValueError("ComfyUI 缺少 H3 视频节点")
+                        raise ValueError(tr("ComfyUI is missing H3 video nodes"))
                 return self._send(200,"application/json; charset=utf-8",json.dumps(
-                    {"ok":True,"kind":kind or "image","note":"ComfyUI 已连接；模型可用，未提交生成任务"},ensure_ascii=False).encode())
+                    {"ok":True,"kind":kind or "image","note":tr("ComfyUI connected; model available, no generation submitted")},ensure_ascii=False).encode())
             except Exception as exc:
                 return self._send(200,"application/json; charset=utf-8",json.dumps(
                     {"ok":False,"kind":kind or "image","err":scrub_err(exc)},ensure_ascii=False).encode())
@@ -2098,24 +2104,24 @@ class H(BaseHTTPRequestHandler):
                 missing=[x for x in ("base_url","api_key") if not v.get(x)]
                 if not models.get(kind): missing.append(f"models.{kind}")
                 if missing:
-                    return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":False,"err":"配置不完整，缺: "+"、".join(missing)},ensure_ascii=False).encode())
+                    return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":False,"err":tr("Incomplete config, missing: {missing}", missing="、".join(missing))},ensure_ascii=False).encode())
                 if vid == "doubao" and kind == "video":
                     try:
                         from llm_openai import VendorClient
                         VendorClient.from_config(v).validate_video_config()
                     except Exception as exc:
                         return self._send_run_json(200, {"ok":False,"err":scrub_err(exc)})
-                return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":True,"note":"仅校验配置（该能力走异步生成接口，由生成任务实测）"},ensure_ascii=False).encode())
+                return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":True,"note":tr("Config only (this capability uses the async generate API; a real job is the test)")},ensure_ascii=False).encode())
             if not models.get(kind):
-                return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":False,"err":f"厂商未配置 {kind} 模型"},ensure_ascii=False).encode())
+                return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":False,"err":tr("Vendor has no {kind} model configured", kind=kind)},ensure_ascii=False).encode())
         else:      # 未指定：vision -> text 顺序挑有模型的能力测
             kind=next((k for k in ("vision","text") if models.get(k)),None)
             if not kind:
-                return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":False,"err":"该厂商未配置 vision/text 模型，可用 kind 参数指定其他能力"},ensure_ascii=False).encode())
+                return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":False,"err":tr("This vendor has no vision/text model; pass kind to test another capability")},ensure_ascii=False).encode())
         try:
             af=tools_mod("llm_openai.py")
             if not af:
-                return self._send(500,"application/json",json.dumps({"ok":False,"err":"llm_openai.py 缺失"},ensure_ascii=False).encode())
+                return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("llm_openai.py missing")},ensure_ascii=False).encode())
             t0=time.time()
             af.VendorClient.from_config(v).chat([{"role":"user","content":"ping"}],kind=kind,max_tokens=1,timeout=15)
             return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":True,"kind":kind,"latency_ms":int((time.time()-t0)*1000)},ensure_ascii=False).encode())
@@ -2137,22 +2143,22 @@ class H(BaseHTTPRequestHandler):
                 v=next((x for x in load_vendors() if x.get("id")==vid),None)
                 if v: key=v.get("api_key","")
             if not base and vid!="chatgpt-queue":
-                return self._send(400,"application/json",json.dumps({"ok":False,"err":"草稿缺少 base_url"},ensure_ascii=False).encode())
+                return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Draft is missing base_url")},ensure_ascii=False).encode())
             if not key and vid not in ("local-comfyui","chatgpt-queue"):
-                return self._send(400,"application/json",json.dumps({"ok":False,"err":"草稿未配置 api_key，且落盘配置中也没有可用 key"},ensure_ascii=False).encode())
+                return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Draft has no api_key, and none is saved on disk either")},ensure_ascii=False).encode())
             cfg={"id":vid or "draft","base_url":base,"api_key":key,"enabled":True,
                  "models":(draft.get("models") or (v or {}).get("models") or {}),"endpoints":{}}
         else:
             v=next((x for x in load_vendors() if x.get("id")==vid),None)
             if not v:
-                return self._send(404,"application/json",json.dumps({"ok":False,"err":"厂商不存在"},ensure_ascii=False).encode())
+                return self._send(404,"application/json",json.dumps({"ok":False,"err":tr("Vendor not found")},ensure_ascii=False).encode())
             if not v.get("api_key") and vid not in ("local-comfyui","chatgpt-queue"):
-                return self._send(400,"application/json",json.dumps({"ok":False,"err":"厂商未配置 api_key，请先在厂商设置中填写"},ensure_ascii=False).encode())
+                return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Vendor has no api_key; fill it in vendor settings first")},ensure_ascii=False).encode())
             cfg=v
         try:
             af=tools_mod("llm_openai.py")
             if not af:
-                return self._send(500,"application/json",json.dumps({"ok":False,"err":"llm_openai.py 缺失"},ensure_ascii=False).encode())
+                return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("llm_openai.py missing")},ensure_ascii=False).encode())
             models=af.VendorClient.from_config(cfg,check_enabled=False).list_models(timeout=15)
             return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":True,"models":models},ensure_ascii=False).encode())
         except Exception as e:
@@ -2165,10 +2171,10 @@ class H(BaseHTTPRequestHandler):
         body=json.loads(self.rfile.read(ln).decode("utf-8","replace") or b"{}")
         d=proj_dir(body.get("project"))
         if not d:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目不存在"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Project not found")},ensure_ascii=False).encode())
         nm=tools_mod("normalize_project.py")
         if not nm:
-            return self._send(500,"application/json",json.dumps({"ok":False,"err":"normalize_project.py 缺失"},ensure_ascii=False).encode())
+            return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("normalize_project.py missing")},ensure_ascii=False).encode())
         try:
             ok,plan=nm.normalize(d,apply=bool(body.get("apply")))
             return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":ok,"apply":bool(body.get("apply")),"plan":plan},ensure_ascii=False).encode())
@@ -2183,9 +2189,9 @@ class H(BaseHTTPRequestHandler):
         d=proj_dir(body.get("project")); nm=safe_proj(body.get("name"))
         ad=os.path.join(d,"拉片",nm) if d and nm else ""
         if not d or not nm or not under(os.path.join(d,"拉片"),os.path.realpath(ad)) or not os.path.isfile(os.path.join(ad,"analysis.json")):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目或分析版本不存在"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Project or analysis version not found")},ensure_ascii=False).encode())
         if not tools_mod("explain_shots.py"):
-            return self._send(500,"application/json",json.dumps({"ok":False,"err":"explain_shots.py 缺失"},ensure_ascii=False).encode())
+            return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("explain_shots.py missing")},ensure_ascii=False).encode())
         cmd=[sys.executable,os.path.join(TOOLS,"explain_shots.py"),ad,"--providers",PROV]
         vendor=str(body.get("vendor_id") or body.get("provider") or "")
         if vendor: cmd+=["--vendor",vendor]
@@ -2202,7 +2208,7 @@ class H(BaseHTTPRequestHandler):
         shot_id=str(body.get("shot_id") or "").strip()
         media_type=str(body.get("type") or "image").strip()
         if not d or not board_name or not shot_id or media_type not in ("image","video"):
-            return self._send(400,"application/json; charset=utf-8",json.dumps({"ok":False,"err":"project/board/shot_id/type 参数不合法"},ensure_ascii=False).encode())
+            return self._send(400,"application/json; charset=utf-8",json.dumps({"ok":False,"err":tr("Invalid project/board/shot_id/type")},ensure_ascii=False).encode())
         try:
             load_storyboard(d,board_name)
         except ValueError as exc:
@@ -2220,11 +2226,11 @@ class H(BaseHTTPRequestHandler):
         d=proj_dir(body.get("project")); name=safe_proj(body.get("board"))
         pid=safe_proj(body.get("panel_id"))
         if not d or not name or not pid:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"画格草稿参数不合法"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid panel draft parameters")},ensure_ascii=False).encode())
         try:
             _,board,_=load_storyboard(d,name)
             if not any(isinstance(x,dict) and x.get("id")==pid for x in board.get("panels",[])):
-                raise ValueError("画格不存在")
+                raise ValueError(tr("Panel not found"))
         except Exception as exc:
             return self._send(400,"application/json",json.dumps({"ok":False,"err":scrub_err(exc)},ensure_ascii=False).encode())
         cmd=[sys.executable,os.path.join(TOOLS,"generate_panel_draft.py"),d,
@@ -2240,7 +2246,7 @@ class H(BaseHTTPRequestHandler):
         d=proj_dir(body.get("project")); name=safe_proj(body.get("board"))
         grid=body.get("grid")
         if not d or not name or not isinstance(grid,dict):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"宫格参数不合法"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid grid parameters")},ensure_ascii=False).encode())
         try:
             mod=tools_mod("storyboard_panel_service.py")
             board=mod.save_grid(d,name,grid)
@@ -2256,7 +2262,7 @@ class H(BaseHTTPRequestHandler):
         d=proj_dir(body.get("project")); name=safe_proj(body.get("board"))
         panel=body.get("panel")
         if not d or not name or not isinstance(panel,dict):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"project/board/panel 参数不合法"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid project/board/panel")},ensure_ascii=False).encode())
         try:
             mod=tools_mod("storyboard_panel_service.py")
             board=mod.save_panel(d,name,panel)
@@ -2273,11 +2279,11 @@ class H(BaseHTTPRequestHandler):
         pid=str(body.get("panel_id") or "")
         draft=body.get("draft"); refs=body.get("refs") or []
         if not d or not name or not pid or not isinstance(draft,dict) or not isinstance(refs,list):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"画格预览参数不合法"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid panel preview parameters")},ensure_ascii=False).encode())
         try:
             _,board,_=load_storyboard(d,name)
             panel=next((x for x in board.get("panels",[]) if isinstance(x,dict) and x.get("id")==pid),None)
-            if panel is None: raise ValueError("画格不存在")
+            if panel is None: raise ValueError(tr("Panel not found"))
             mod=tools_mod("storyboard_panel_service.py")
             request=mod.preview_panel(d,panel,draft,refs)
             return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":True,"compiled_request":request},ensure_ascii=False).encode())
@@ -2291,7 +2297,7 @@ class H(BaseHTTPRequestHandler):
         body=json.loads(self.rfile.read(ln).decode("utf-8","replace") or b"{}")
         d=proj_dir(body.get("project")); board_name=body.get("board"); shot_id=body.get("shot_id")
         if not d or not board_name or not shot_id:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"project/board/shot_id 必填"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("project/board/shot_id are required")},ensure_ascii=False).encode())
         try:
             bundle=assemble_create_shot(d,board_name,shot_id,body.get("prompt_user"),body.get("type") or "image", body.get("vendor_id") or body.get("provider_id") or "", body.get("mode") or "generate")
             return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":True,**bundle},ensure_ascii=False).encode())
@@ -2303,15 +2309,15 @@ class H(BaseHTTPRequestHandler):
         u, q = ctx.url, ctx.query
         ln = ctx.content_length
         if chatgpt_queue is None:
-            return self._send(500,"application/json",json.dumps({"ok":False,"err":"ChatGPT 队列模块缺失"},ensure_ascii=False).encode())
+            return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("ChatGPT queue module missing")},ensure_ascii=False).encode())
         try:
             body=json.loads(self.rfile.read(ln).decode("utf-8","replace") or "{}")
             d=proj_dir(body.get("project")); board_name=safe_proj(body.get("board"))
             shot_ids=body.get("shot_ids") or []
             if not d or not board_name or not isinstance(shot_ids,list) or len(shot_ids)>200:
-                raise ValueError("project/board/shot_ids 参数不合法")
+                raise ValueError(tr("Invalid project/board/shot_ids"))
             if str(body.get("type") or "image") != "image":
-                raise ValueError("ChatGPT 队列 V1 只支持图片")
+                raise ValueError(tr("ChatGPT queue V1 only supports images"))
             jobs=chatgpt_queue.queue_shots(d,board_name,shot_ids,str(body.get("task_type") or "reference_image"))
             return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":True,"jobs":jobs},ensure_ascii=False).encode())
         except (chatgpt_queue.QueueError, ValueError) as exc:
@@ -2324,12 +2330,12 @@ class H(BaseHTTPRequestHandler):
         u, q = ctx.url, ctx.query
         ln = ctx.content_length
         if chatgpt_queue is None:
-            return self._send(500,"application/json",json.dumps({"ok":False,"err":"ChatGPT 队列模块缺失"},ensure_ascii=False).encode())
+            return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("ChatGPT queue module missing")},ensure_ascii=False).encode())
         try:
             body=json.loads(self.rfile.read(ln).decode("utf-8","replace") or "{}")
             d=proj_dir(body.get("project")); refs=body.get("asset_refs") or []
             if not d or not isinstance(refs,list) or len(refs)>500:
-                raise ValueError("project/asset_refs 参数不合法")
+                raise ValueError(tr("Invalid project/asset_refs"))
             jobs=chatgpt_queue.queue_assets(d, refs)
             return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":True,"jobs":jobs},ensure_ascii=False).encode())
         except (chatgpt_queue.QueueError, ValueError) as exc:
@@ -2342,16 +2348,16 @@ class H(BaseHTTPRequestHandler):
         u, q = ctx.url, ctx.query
         ln = ctx.content_length
         if chatgpt_run_api is None:
-            return self._send_run_json(500,{"ok":False,"err":"ChatGPT 运行接口模块缺失"})
+            return self._send_run_json(500,{"ok":False,"err":tr("ChatGPT run API module missing")})
         try:
             body=json.loads(self.rfile.read(ln).decode("utf-8","replace") or "{}")
             d=proj_dir(body.get("project"))
             if not d:
-                return self._send_run_json(400,{"ok":False,"err":"project 必填"})
+                return self._send_run_json(400,{"ok":False,"err":tr("project is required")})
             token=self._run_token()
             if u.path=="/api/create/chatgpt/run/create":
                 if not image_use_runtime.status()['installed']:
-                    return self._send_run_json(409,{"ok":False,"err":"请先安装 chrome-use / image-use"})
+                    return self._send_run_json(409,{"ok":False,"err":tr("Install chrome-use / image-use first")})
                 result=chatgpt_run_api.create_run(d,body)
                 try: image_use_runner.start(d,result['run_id'],result['run_token'])
                 except Exception as exc:
@@ -2364,7 +2370,7 @@ class H(BaseHTTPRequestHandler):
             if u.path=="/api/create/chatgpt/run/control":
                 result=image_use_runner.control(d,body.get("run_id"),token,body.get("action"))
                 return self._send_run_json(200,{"ok":True,"run":result})
-            return self._send_run_json(404,{"ok":False,"err":"运行接口不存在"})
+            return self._send_run_json(404,{"ok":False,"err":tr("Run API not found")})
         except chatgpt_run_api.ApiError as exc:
             return self._send_run_error(exc)
         except Exception as exc:
@@ -2375,7 +2381,7 @@ class H(BaseHTTPRequestHandler):
         u, q = ctx.url, ctx.query
         ln = ctx.content_length
         if chatgpt_import is None:
-            return self._send(500,"application/json",json.dumps({"ok":False,"err":"ChatGPT 导入模块缺失"},ensure_ascii=False).encode())
+            return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("ChatGPT import module missing")},ensure_ascii=False).encode())
         try:
             ctype=str(self.headers.get("Content-Type") or "")
             raw=self.rfile.read(ln)
@@ -2411,7 +2417,7 @@ class H(BaseHTTPRequestHandler):
                     files={str(k):base64.b64decode(v) for k,v in encoded.items()}
             d=proj_dir(project)
             if not d or manifest_or_zip is None:
-                raise ValueError("project 和生成包必填")
+                raise ValueError(tr("project and the generation packet are required"))
             result=chatgpt_import.import_package(d,manifest_or_zip,files)
             return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":True,**result},ensure_ascii=False).encode())
         except chatgpt_import.ImportError as exc:
@@ -2430,9 +2436,9 @@ class H(BaseHTTPRequestHandler):
             image_mode = "generate"
         vendor_id=str(body.get("vendor_id") or body.get("provider_id") or "")
         if not d or not board_name or not vendor_id or mtype not in ("image","video"):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"project/board/type/vendor_id 参数不合法"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid project/board/type/vendor_id")},ensure_ascii=False).encode())
         if not next((x for x in load_vendors() if x.get("id")==vendor_id and x.get("enabled")),None):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"厂商不存在或未启用"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Vendor not found or disabled")},ensure_ascii=False).encode())
         if vendor_id == "doubao" and mtype == "video":
             try:
                 from llm_openai import VendorClient
@@ -2450,7 +2456,7 @@ class H(BaseHTTPRequestHandler):
         shot_ids=[str(x).strip() for x in raw_ids if str(x).strip()] if isinstance(raw_ids,list) else []
         if not shot_ids or len(shot_ids)>200:
             # 空选择曾一路透传到 create_batch 的「未选=全板」兜底，等于整板付费生成
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"shot_ids 须为数组且至少选择一个镜头"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("shot_ids must be an array with at least one shot")},ensure_ascii=False).encode())
         for sid in shot_ids:
             cmd += ["--shot-id",sid]
         jid=self.spawn_job("create_batch",cmd)
@@ -2479,7 +2485,7 @@ class H(BaseHTTPRequestHandler):
         q = ctx.query
         d = proj_dir((q.get('project') or [''])[0])
         try:
-            if not d: raise ValueError('项目不存在')
+            if not d: raise ValueError(tr('Project not found'))
             if ctx.url.path.endswith('/voices'):
                 cfg = next((v for v in load_vendors() if v.get('id') == 'minimax'), None)
                 result = tools_mod('voice_assets.py').state(d, cfg)
@@ -2503,7 +2509,7 @@ class H(BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(ctx.content_length).decode('utf-8') or '{}')
         d = proj_dir(body.get('project'))
         try:
-            if not d: raise ValueError('项目不存在')
+            if not d: raise ValueError(tr('Project not found'))
             mod = tools_mod('production_studio.py')
             if ctx.url.path.endswith('/job'):
                 result = tools_mod('production_jobs.py').enqueue(d, body, self.spawn_job, PROV)
@@ -2517,17 +2523,17 @@ class H(BaseHTTPRequestHandler):
                     if body.get('shots') is not None:
                         patches = body['shots']
                         if [s.get('id') for s in patches] != [s['id'] for s in board['shots']]:
-                            raise ValueError('镜头顺序或数量已变化，请刷新')
+                            raise ValueError(tr('Shot order or count changed; refresh and try again'))
                         board['shots'] = mod.merge_shots(board, patches)
                     if body.get('scope') == 'S':
                         shot = next((s for s in board['shots'] if s['id'] == body.get('target')), None)
-                        if not shot: raise ValueError('转场镜头不存在')
+                        if not shot: raise ValueError(tr('Transition shot not found'))
                         patch = {k: v for k, v in (body.get('patch') or {}).items()
                                  if k in ('prompt_image', 'prompt_video', 'prompt_grid', 'negative', 'video_duration', 'generation_options')}
                         updated = mod.merge_shots({'shots': [shot]}, [{'id': shot['id'], **patch}])[0]
                         shot.update(updated)
                     elif body.get('initialize'):
-                        if board.get('video_units'): raise ValueError('已存在 V 编排，请使用合并/拆分')
+                        if board.get('video_units'): raise ValueError(tr('A V layout already exists; use merge/split'))
                         board['video_units'] = mod.default_units(board)
                     elif body.get('units') is not None:
                         units = mod.clean_units(board, body['units'])
@@ -2536,7 +2542,7 @@ class H(BaseHTTPRequestHandler):
                             if unit['id'] == body.get('confirm_summary'):
                                 unit['source_hash'] = mod.source_hash(mod.shot_list(board, unit))
                         board['video_units'] = units
-                    elif body.get('shots') is None: raise ValueError('保存内容为空')
+                    elif body.get('shots') is None: raise ValueError(tr('Nothing to save'))
                     mod.sync_shot_durations(board, previous_shots)
                 _, board_rev = mod.project_store.update_json(mod.board_path(d, body['board']), mutate,
                     expected_revision=body.get('revision'), snapshot=mod.versions.snapshot)
@@ -2567,15 +2573,15 @@ class H(BaseHTTPRequestHandler):
         panel_id=str(body.get("panel_id") or "").strip()
         if panel_id:
             if mtype!="image" or not d or not board_name:
-                return self._send(400,"application/json",json.dumps({"ok":False,"err":"画格只支持分镜生图"},ensure_ascii=False).encode())
+                return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Panels only support storyboard image generation")},ensure_ascii=False).encode())
             draft=body.get("panel_draft")
             if not isinstance(draft,dict):
-                return self._send(400,"application/json",json.dumps({"ok":False,"err":"panel_draft 必须是对象"},ensure_ascii=False).encode())
+                return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("panel_draft must be an object")},ensure_ascii=False).encode())
             try:
                 _,panel_board,_=load_storyboard(d,board_name)
                 panel=next((x for x in panel_board.get("panels",[]) if isinstance(x,dict) and x.get("id")==panel_id),None)
-                if panel is None: raise ValueError("画格不存在")
-                if shot_id and shot_id not in panel.get("shot_ids",[]): raise ValueError("画格未关联当前镜头")
+                if panel is None: raise ValueError(tr("Panel not found"))
+                if shot_id and shot_id not in panel.get("shot_ids",[]): raise ValueError(tr("Panel is not linked to the current shot"))
                 mod=tools_mod("storyboard_panel_service.py")
                 compiled_request=mod.preview_panel(d,panel,draft,refs)
                 prompt_user=compiled_request["prompt"]
@@ -2605,14 +2611,14 @@ class H(BaseHTTPRequestHandler):
         # 避免用户编辑装配结果后被服务端重复拼接。
         prompt=prompt_user or prompt_assembled
         if not d or mtype not in ("image","video","music","speech") or not prompt or not vendor_id:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"参数不合法（project/type/prompt/vendor_id 必填）"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid parameters (project/type/prompt/vendor_id are required)")},ensure_ascii=False).encode())
         vendor_cfg = next((v for v in load_vendors() if v.get("id") == vendor_id and v.get("enabled")), None)
         binding = {}
         try:
             media_mod = tools_mod("creation_media.py")
             if mtype in ("music", "speech"):
-                if vendor_id != "minimax": raise ValueError("当前音乐/语音执行器支持 MiniMax，请选择已适配厂商")
-                if refs: raise ValueError("音乐和语音不接受图片参考，请移除图片")
+                if vendor_id != "minimax": raise ValueError(tr("The current music/speech runner supports MiniMax; pick a supported vendor"))
+                if refs: raise ValueError(tr("Music and speech do not accept image references; remove the images"))
                 if mtype == "speech":
                     binding = media_mod.speech_binding(d, str(body.get("character_id") or ""), str(body.get("voice_id") or ""), vendor_id)
                 else:
@@ -2627,7 +2633,7 @@ class H(BaseHTTPRequestHandler):
             return self._send_run_json(400, {"ok":False,"err":scrub_err(exc)})
         if not model_name:
             return self._send(400, "application/json",
-                json.dumps({"ok":False, "err":f"厂商未配置 {model_slot} 模型"}, ensure_ascii=False).encode())
+                json.dumps({"ok":False, "err":tr("Vendor has no {kind} model configured", kind=model_slot)}, ensure_ascii=False).encode())
         if vendor_id == "doubao" and mtype == "video":
             try:
                 from llm_openai import VendorClient
@@ -2647,20 +2653,20 @@ class H(BaseHTTPRequestHandler):
                 workflow_path = str(extra_cfg.get("workflow_path") or "").strip()
             if image_mode != "edit" and not workflow_path:
                 return self._send(400, "application/json",
-                    json.dumps({"ok":False, "err":"ComfyUI 生图参考图工作流未配置；请在环境页选择 API 工作流，并在 LoadImage.image 中设置 {{{{ref1}}}}、{{{{ref2}}}}… 占位符后再生成。"}, ensure_ascii=False).encode())
+                    json.dumps({"ok":False, "err":tr("ComfyUI reference-image workflow is not configured; pick an API workflow on the Environment page and set {{{{ref1}}}}, {{{{ref2}}}}… placeholders on LoadImage.image before generating.")}, ensure_ascii=False).encode())
         if vendor_id == "local-comfyui" and mtype == "image" and image_mode == "edit" and not refs:
-            return self._send(400, "application/json", json.dumps({"ok":False, "err":"ComfyUI 改图必须至少引用 1 张参考图"}, ensure_ascii=False).encode())
+            return self._send(400, "application/json", json.dumps({"ok":False, "err":tr("ComfyUI image edit needs at least 1 reference image")}, ensure_ascii=False).encode())
         # 豆包 Agent Plan 的视频任务端点不接受 SD1.5/SDXL 这类本地扩散模型名。
         # 在写入创作清单前阻断，避免产生一个必失败的后台任务。
         if vendor_id == "doubao" and mtype == "video" and "/tasks" in str(((vendor_cfg or {}).get("endpoints") or {}).get("video") or ""):
             if re.search(r"(?:^|[-_])(?:sd1\.5|sd15|sdxl|stable[-_]?diffusion)(?:[-_.]|$)", str(model_name or ""), re.IGNORECASE):
                 return self._send(400, "application/json",
-                    json.dumps({"ok":False, "err":f"模型 {model_name} 不支持豆包 Agent Plan 视频接口；请改用套餐支持的 Seedance/Agent Plan 模型，或切换 local-comfyui 并配置 SD1.5/SDXL 视频工作流。"}, ensure_ascii=False).encode())
+                    json.dumps({"ok":False, "err":tr("Model {model} does not support the Doubao Agent Plan video API; use a Seedance/Agent Plan model from the plan, or switch to local-comfyui with an SD1.5/SDXL video workflow.", model=model_name)}, ensure_ascii=False).encode())
         ref_cap = reference_limit(vendor_id, model_name, mtype, vendor_cfg) if reference_limit else 3
         if not isinstance(refs,list) or len(refs)>ref_cap:
-            detail = f"refs 须为数组且不超过 {ref_cap} 张（{vendor_id}/{model_name or '未配置模型'} 的参考图输入上限）"
+            detail = tr("refs must be an array of at most {n} images ({vendor}/{model} reference-image limit)", n=ref_cap, vendor=vendor_id, model=model_name or tr("no model configured"))
             if vendor_id == "local-comfyui" and mtype == "video":
-                detail += "；当前视频适配器是 MiniMax H3 内置工作流，固定最多 3 张，请在提示词中只保留 3 个 @ref，或改用支持更多参考图的云端视频模型"
+                detail += tr("; the current video adapter is the built-in MiniMax H3 workflow (max 3 images). Keep only 3 @ref in the prompt, or switch to a cloud video model that accepts more references")
             return self._send(400,"application/json",json.dumps({"ok":False,"err":detail},ensure_ascii=False).encode())
         refpaths=[]; ref_records=[]
         refmod = tools_mod("asset_refs.py")
@@ -2674,7 +2680,7 @@ class H(BaseHTTPRequestHandler):
             except (ValueError, TypeError):
                 p = ""
             if not p or not under(d,p) or not os.path.isfile(p):
-                return self._send(400,"application/json",json.dumps({"ok":False,"err":"参考图不在项目目录内: "+str(raw_ref)},ensure_ascii=False).encode())
+                return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Reference image is outside the project directory: {ref}", ref=raw_ref)},ensure_ascii=False).encode())
             refpaths.append(p)
             with open(p,"rb") as ref_file:
                 content_hash="sha256:"+hashlib.file_digest(ref_file,"sha256").hexdigest()
@@ -2693,7 +2699,7 @@ class H(BaseHTTPRequestHandler):
         if compiled_request is not None:
             compiled_request["image_refs"]=ref_records
         if not next((x for x in load_vendors() if x.get("id")==vendor_id and x.get("enabled")),None):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"厂商不存在或未启用"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Vendor not found or disabled")},ensure_ascii=False).encode())
         video_options = None
         if mtype == 'video':
             try:
@@ -2707,7 +2713,7 @@ class H(BaseHTTPRequestHandler):
                 if video_options['mode'] == 'first_frame' and len(refpaths) == 1:
                     first=refpaths[0]; ref_records[0]['reference_role']='first_frame'
                 vp.validate_media(cap,video_options['mode'],refpaths,first,last)
-                if cap['transport']=='public_url' and refpaths: raise ValueError('Agnes 本地参考图需公网 URL，请在创作生成页绑定对应地址')
+                if cap['transport']=='public_url' and refpaths: raise ValueError(tr('Agnes local reference images need a public URL; bind it on the generation page'))
             except Exception as exc: return self._send_run_json(400, {'ok':False,'err':scrub_err(exc)})
         item_id=time.strftime("%Y%m%d_%H%M%S")+"_%06d"%(int(time.time()*1e6)%1000000)
         outdir=os.path.join(d,"创作",item_id); os.makedirs(outdir,exist_ok=True)
@@ -2752,7 +2758,7 @@ class H(BaseHTTPRequestHandler):
                 snapshot = getattr(versions_mod, "snapshot", None) if versions_mod else None
                 project_store.update_json(mf, _append_manifest, create_default={"items": []}, snapshot=snapshot)
             except Exception as exc:
-                return self._send(500,"application/json",json.dumps({"ok":False,"err":"写入创作清单失败: "+scrub_err(exc)},ensure_ascii=False).encode())
+                return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("Failed to write the creation index: {err}", err=scrub_err(exc))},ensure_ascii=False).encode())
         else:
             data.setdefault("items",[]).append(item)
             json.dump(data,open(mf,"w",encoding="utf-8"),ensure_ascii=False,indent=1)
@@ -2789,12 +2795,12 @@ class H(BaseHTTPRequestHandler):
         d=proj_dir(body.get("project")); item=body.get("item")
         mf=os.path.join(d,"创作","creation.json") if d else ""
         if not d or not isinstance(item,dict) or not item.get("id") or not os.path.isfile(mf):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"参数不合法"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid parameters")},ensure_ascii=False).encode())
         keys=("prompt","board","shot_id","prompt_user","prompt_assembled","prompt_json","asset_refs","negative","refs","vendor_id","note","status","outputs","asset_context","source_hash","acting_mode","actor_performance_used","actor_warnings","prompt_stage","prompt_system","prompt_revision","asset_revisions")
         found=[False]
         def _save_item(data):
             if not isinstance(data,dict) or not isinstance(data.get("items"),list):
-                raise ValueError("creation.json.items 必须是数组")
+                raise ValueError(tr("creation.json.items must be an array"))
             for current in data["items"]:
                 if isinstance(current,dict) and current.get("id")==item["id"]:
                     for k in keys:
@@ -2812,7 +2818,7 @@ class H(BaseHTTPRequestHandler):
             data=json.load(open(mf,encoding="utf-8")); _save_item(data)
             if found[0]: json.dump(data,open(mf,"w",encoding="utf-8"),ensure_ascii=False,indent=1)
         if not found[0]:
-            return self._send(404,"application/json",json.dumps({"ok":False,"err":"条目不存在"},ensure_ascii=False).encode())
+            return self._send(404,"application/json",json.dumps({"ok":False,"err":tr("Item not found")},ensure_ascii=False).encode())
         return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":True,"id":item["id"]},ensure_ascii=False).encode())
 
     @route('POST', '/api/create/delete')
@@ -2822,10 +2828,10 @@ class H(BaseHTTPRequestHandler):
         body=json.loads(self.rfile.read(ln).decode("utf-8","replace") or b"{}")
         d=proj_dir(body.get("project")); iid=safe_proj(body.get("id"))
         if not d or not iid:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"参数不合法"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid parameters")},ensure_ascii=False).encode())
         outdir=os.path.realpath(os.path.join(d,"创作",iid))
         if not under(os.path.join(d,"创作"),outdir) or not os.path.isdir(outdir):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"条目目录不存在"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Item folder not found")},ensure_ascii=False).encode())
         shutil.rmtree(outdir,ignore_errors=True)
         mf=os.path.join(d,"创作","creation.json")
         if os.path.isfile(mf):
@@ -2839,7 +2845,7 @@ class H(BaseHTTPRequestHandler):
                     snapshot=getattr(versions_mod,"snapshot",None) if versions_mod else None
                     project_store.update_json(mf,_remove_item,snapshot=snapshot)
                 except Exception as exc:
-                    return self._send(500,"application/json",json.dumps({"ok":False,"err":"更新创作清单失败: "+scrub_err(exc)},ensure_ascii=False).encode())
+                    return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("Failed to update the creation index: {err}", err=scrub_err(exc))},ensure_ascii=False).encode())
             else:
                 _versions_snapshot(mf)
                 try: data=json.load(open(mf,encoding="utf-8"))
@@ -2856,10 +2862,10 @@ class H(BaseHTTPRequestHandler):
         d=proj_dir(body.get("project"))
         video=safe_video_abs(body.get("video"))
         if not d or not video:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目或视频路径不合法"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid project or video path")},ensure_ascii=False).encode())
         af=tools_mod("analyze_film.py")
         if not af:
-            return self._send(500,"application/json",json.dumps({"ok":False,"err":"analyze_film.py 缺失"},ensure_ascii=False).encode())
+            return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("analyze_film.py missing")},ensure_ascii=False).encode())
         nm=safe_proj(body.get("name")) or time.strftime("分析_%Y%m%d_%H%M%S")
         outdir=os.path.join(d,"拉片",nm)
         cmd=[sys.executable,os.path.join(TOOLS,"analyze_film.py"),video,"--out",outdir]
@@ -2888,10 +2894,10 @@ class H(BaseHTTPRequestHandler):
         d=proj_dir(body.get("project")); nm=safe_proj(body.get("name"))
         aj=os.path.join(d,"拉片",nm,"analysis.json") if d and nm else ""
         if not d or not nm or not under(os.path.join(d,"拉片"),os.path.realpath(aj)) or not os.path.isfile(aj):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目或分析版本不存在"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Project or analysis version not found")},ensure_ascii=False).encode())
         ex=tools_mod("export_analysis_xlsx.py")
         if not ex:
-            return self._send(500,"application/json",json.dumps({"ok":False,"err":"export_analysis_xlsx.py 缺失"},ensure_ascii=False).encode())
+            return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("export_analysis_xlsx.py missing")},ensure_ascii=False).encode())
         jid=self.spawn_job("analysis",[sys.executable,os.path.join(TOOLS,"export_analysis_xlsx.py"),aj])
         return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":True,"id":jid,"job":True,"file":"projects/"+safe_proj(body.get("project"))+"/拉片/"+nm+"/"+nm+"_分镜脚本.xlsx"},ensure_ascii=False).encode())
 
@@ -2904,11 +2910,11 @@ class H(BaseHTTPRequestHandler):
         d=proj_dir(body.get("project")); nm=safe_proj(body.get("name"))
         ad=os.path.join(d,"拉片",nm) if d and nm else ""
         if not d or not nm or not under(os.path.join(d,"拉片"),os.path.realpath(ad)) or not os.path.isfile(os.path.join(ad,"analysis.json")):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目或分析版本不存在"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Project or analysis version not found")},ensure_ascii=False).encode())
         if not os.path.isfile(os.path.join(d,"台词","台词脚本.json")):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目还没有台词脚本.json（先在台词页合并）"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("This project has no 台词脚本.json yet (merge lines on the dialogue page first)")},ensure_ascii=False).encode())
         if not tools_mod("analyze_film.py"):
-            return self._send(500,"application/json",json.dumps({"ok":False,"err":"analyze_film.py 缺失"},ensure_ascii=False).encode())
+            return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("analyze_film.py missing")},ensure_ascii=False).encode())
         _env=subprocess_env(); _env["PYTHONIOENCODING"]="utf-8"
         jid=self.spawn_job("analysis",[sys.executable,os.path.join(TOOLS,"analyze_film.py"),"--merge-lines",ad])
         return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":True,"id":jid,"job":True},ensure_ascii=False).encode())
@@ -2922,9 +2928,9 @@ class H(BaseHTTPRequestHandler):
         d=proj_dir(body.get("project")); nm=safe_proj(body.get("name"))
         ad=os.path.join(d,"拉片",nm) if d and nm else ""
         if not d or not nm or not under(os.path.join(d,"拉片"),os.path.realpath(ad)) or not os.path.isfile(os.path.join(ad,"analysis.json")):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目或分析版本不存在"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Project or analysis version not found")},ensure_ascii=False).encode())
         if not tools_mod("analyze_film.py"):
-            return self._send(500,"application/json",json.dumps({"ok":False,"err":"analyze_film.py 缺失"},ensure_ascii=False).encode())
+            return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("analyze_film.py missing")},ensure_ascii=False).encode())
         cmd=[sys.executable,os.path.join(TOOLS,"analyze_film.py"),"--fill",ad]
         if body.get("only_empty"): cmd.append("--only-empty")
         vendor=str(body.get("vendor_id") or "")
@@ -2946,11 +2952,11 @@ class H(BaseHTTPRequestHandler):
         shots=body.get("shots")
         ad=os.path.join(d,"拉片",nm) if d and nm else ""
         if not d or not nm or not under(os.path.join(d,"拉片"),os.path.realpath(ad)) or not os.path.isfile(os.path.join(ad,"analysis.json")):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目或分析版本不存在"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Project or analysis version not found")},ensure_ascii=False).encode())
         if not isinstance(shots,list) or not shots or not all(isinstance(x,str) and re.fullmatch(r"S\d+",x.strip()) for x in shots):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"shots 须为镜号数组（如 [\"S3\"]）"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("shots must be an array of shot ids (e.g. [\"S3\"])")},ensure_ascii=False).encode())
         if not tools_mod("analyze_film.py"):
-            return self._send(500,"application/json",json.dumps({"ok":False,"err":"analyze_film.py 缺失"},ensure_ascii=False).encode())
+            return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("analyze_film.py missing")},ensure_ascii=False).encode())
         cmd=[sys.executable,os.path.join(TOOLS,"analyze_film.py"),"--fill",ad,"--shots",",".join(x.strip() for x in shots)]
         vendor=str(body.get("vendor_id") or "")
         if not vendor:
@@ -2968,7 +2974,7 @@ class H(BaseHTTPRequestHandler):
         d=proj_dir(body.get("project")); nm=safe_proj(body.get("name"))
         an=body.get("analysis")
         if not d or not nm or not isinstance(an,dict):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"参数不合法"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid parameters")},ensure_ascii=False).encode())
         va=tools_mod("validate_analysis.py")
         errors,warnings=(va.validate(an) if va else (["校验器缺失"],[]))
         if errors:
@@ -2988,7 +2994,7 @@ class H(BaseHTTPRequestHandler):
         hit=[v for v in vers if v.get("name")==nm]
         entry={"name":nm,"created_at":an.get("created_at") or time.strftime("%Y-%m-%dT%H:%M:%S"),
                "status":"done","shot_count":len(an.get("shots") or []),
-               "source":an.get("source",""),"note":"workbench 保存"}
+               "source":an.get("source",""),"note":"workbench save"}
         if hit: hit[0].update(entry)
         else: vers.append(entry)
         _versions_snapshot(vf)
@@ -3002,10 +3008,10 @@ class H(BaseHTTPRequestHandler):
         body=json.loads(self.rfile.read(ln).decode("utf-8","replace") or b"{}")
         d=proj_dir(body.get("project")); nm=safe_proj(body.get("name"))
         if not d or not nm:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"参数不合法"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid parameters")},ensure_ascii=False).encode())
         outdir=os.path.realpath(os.path.join(d,"拉片",nm))
         if not under(os.path.join(d,"拉片"),outdir) or not os.path.isdir(outdir):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"版本目录不存在"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Version folder not found")},ensure_ascii=False).encode())
         shutil.rmtree(outdir,ignore_errors=True)
         vf=os.path.join(d,"拉片","_versions.json")
         if os.path.isfile(vf):
@@ -3022,9 +3028,9 @@ class H(BaseHTTPRequestHandler):
         d=proj_dir(body.get("project"))
         video=safe_video_abs(body.get("video"))
         if not d or not video:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目或视频路径不合法"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid project or video path")},ensure_ascii=False).encode())
         if not tools_mod("extract_frames_1fps.py"):
-            return self._send(500,"application/json",json.dumps({"ok":False,"err":"extract_frames_1fps.py 缺失"},ensure_ascii=False).encode())
+            return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("extract_frames_1fps.py missing")},ensure_ascii=False).encode())
         outdir=os.path.join(d,"逐帧","每秒")
         jid=self.spawn_job("frames",[sys.executable,os.path.join(TOOLS,"extract_frames_1fps.py"),video,"--out",outdir])
         return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":True,"id":jid,"job":True},ensure_ascii=False).encode())
@@ -3036,9 +3042,9 @@ class H(BaseHTTPRequestHandler):
         body=json.loads(self.rfile.read(ln).decode("utf-8","replace") or b"{}")
         d=proj_dir(body.get("project"))
         if not d:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目不存在"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Project not found")},ensure_ascii=False).encode())
         if not tools_mod("merge_lines.py"):
-            return self._send(500,"application/json",json.dumps({"ok":False,"err":"merge_lines.py 缺失"},ensure_ascii=False).encode())
+            return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("merge_lines.py missing")},ensure_ascii=False).encode())
         out=os.path.join(d,"台词","台词脚本.json")
         jid=self.spawn_job("lines",[sys.executable,os.path.join(TOOLS,"merge_lines.py"),d,"--out",out])
         return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":True,"id":jid,"job":True},ensure_ascii=False).encode())
@@ -3051,9 +3057,9 @@ class H(BaseHTTPRequestHandler):
         body=json.loads(self.rfile.read(ln).decode("utf-8","replace") or b"{}")
         d=proj_dir(body.get("project"))
         if not d:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目不存在"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Project not found")},ensure_ascii=False).encode())
         if not tools_mod("attribute_speakers.py"):
-            return self._send(500,"application/json",json.dumps({"ok":False,"err":"attribute_speakers.py 缺失"},ensure_ascii=False).encode())
+            return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("attribute_speakers.py missing")},ensure_ascii=False).encode())
         cmd=[sys.executable,os.path.join(TOOLS,"attribute_speakers.py"),d,"--providers",PROV]
         nm=safe_proj(body.get("analysis") or "")
         if nm: cmd+=["--analysis",nm]
@@ -3067,7 +3073,7 @@ class H(BaseHTTPRequestHandler):
         body=json.loads(self.rfile.read(ln).decode("utf-8","replace") or b"{}")
         d=proj_dir(body.get("project")); sc=body.get("script")
         if not d or not isinstance(sc,dict) or not isinstance(sc.get("lines"),list):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"script 须含 lines 数组"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("script must contain a lines array")},ensure_ascii=False).encode())
         _versions_snapshot(os.path.join(d,"台词","台词脚本.json"))
         os.makedirs(os.path.join(d,"台词"),exist_ok=True)
         json.dump(sc,open(os.path.join(d,"台词","台词脚本.json"),"w",encoding="utf-8"),ensure_ascii=False,indent=1)
@@ -3081,10 +3087,10 @@ class H(BaseHTTPRequestHandler):
         body=json.loads(self.rfile.read(ln).decode("utf-8","replace") or b"{}")
         d=proj_dir(body.get("project"))
         if not d:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目不存在"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Project not found")},ensure_ascii=False).encode())
         gen=os.path.join(TOOLS,"analysis_to_storyboard.py")
         if not os.path.isfile(gen):
-            return self._send(500,"application/json",json.dumps({"ok":False,"err":"analysis_to_storyboard.py 缺失"},ensure_ascii=False).encode())
+            return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("analysis_to_storyboard.py missing")},ensure_ascii=False).encode())
         cmd=[sys.executable,gen,d,"--style",body.get("style") if body.get("style") in ("stand","seated") else "stand"]
         nm=safe_proj(body.get("analysis") or "")
         if nm: cmd+=["--analysis",nm]
@@ -3103,7 +3109,7 @@ class H(BaseHTTPRequestHandler):
         d=proj_dir(body.get("project"))
         rel=str(body.get("json") or "")
         if not d:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目不存在"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Project not found")},ensure_ascii=False).encode())
         sb=os.path.normpath(os.path.join(d,rel)) if not os.path.isabs(rel) else os.path.normpath(rel)
         # 兼容旧版前端只提交分镜文件名的请求，自动在项目/分镜下解析。
         if (not os.path.isfile(sb) and rel and not os.path.isabs(rel)
@@ -3112,9 +3118,9 @@ class H(BaseHTTPRequestHandler):
             if under(d, fallback):
                 sb=fallback
         if not under(d,sb) or not os.path.isfile(sb) or not sb.lower().endswith(".json"):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"分镜 JSON 不合法"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid storyboard JSON")},ensure_ascii=False).encode())
         if not tools_mod("export_previz.py"):
-            return self._send(500,"application/json",json.dumps({"ok":False,"err":"export_previz.py 缺失"},ensure_ascii=False).encode())
+            return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("export_previz.py missing")},ensure_ascii=False).encode())
         cmd=[sys.executable,os.path.join(TOOLS,"export_previz.py"),sb]
         if body.get("frame") in ("mid","start"): cmd+=["--frame",body["frame"]]
         # 改异步任务：分镜镜头多时同步会超时；产物路径看任务日志 OUTPUT: 行
@@ -3131,12 +3137,12 @@ class H(BaseHTTPRequestHandler):
         shots=str(body.get("shots") or "").strip()
         rel=str(body.get("json") or "")
         if not d:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目不存在"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Project not found")},ensure_ascii=False).encode())
         sb=os.path.normpath(os.path.join(d,rel)) if not os.path.isabs(rel) else os.path.normpath(rel)
         if not shots or not under(d,sb) or not os.path.isfile(sb) or not sb.lower().endswith(".json"):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目/分镜 JSON/镜头区间不合法"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid project/storyboard JSON/shot range")},ensure_ascii=False).encode())
         if not tools_mod("render_shot_range.py"):
-            return self._send(500,"application/json",json.dumps({"ok":False,"err":"render_shot_range.py 缺失"},ensure_ascii=False).encode())
+            return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("render_shot_range.py missing")},ensure_ascii=False).encode())
         outdir=os.path.join(d,"白模")
         cmd=[sys.executable,os.path.join(TOOLS,"render_shot_range.py"),sb,"--shots",shots,"--outdir",outdir]
         if body.get("engine") in ("dialogue","previs"): cmd+=["--engine",body["engine"]]
@@ -3151,7 +3157,7 @@ class H(BaseHTTPRequestHandler):
         d=proj_dir(body.get("project"))
         txt=str(body.get("text") or "").strip()
         if not d or len(txt)<80:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目不存在或剧本过短(<80字)"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Project not found or script is too short (<80 characters)")},ensure_ascii=False).encode())
         os.makedirs(os.path.join(d,"剧本"),exist_ok=True)
         _versions_snapshot(os.path.join(d,"剧本","剧本.txt"))
         open(os.path.join(d,"剧本","剧本.txt"),"w",encoding="utf-8").write(txt)
@@ -3171,14 +3177,14 @@ class H(BaseHTTPRequestHandler):
         p=os.path.realpath(os.path.join(d,"分镜",nm)) if d and nm else ""
         context=body.get("context")
         if not d or not nm.lower().endswith(".json") or not under(d,p) or not os.path.isfile(p) or not isinstance(context,dict):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目/分镜/context 不合法"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid project/storyboard/context")},ensure_ascii=False).encode())
         try:
             mod=tools_mod("actor_pipeline.py"); board,revision=mod._read_board(p)
             if hasattr(mod, "hydrate_actor_cards"):
                 context=mod.hydrate_actor_cards(context, d, board)
             issues=mod.validate_context(context,board) if hasattr(mod,"validate_context") else []
             if issues:
-                return self._send(422,"application/json",json.dumps({"ok":False,"err":"演员上下文校验失败："+ "；".join(x["message"] for x in issues[:5]),"issues":issues},ensure_ascii=False).encode())
+                return self._send(422,"application/json",json.dumps({"ok":False,"err":tr("Acting context validation failed: {detail}", detail="；".join(x["message"] for x in issues[:5])),"issues":issues},ensure_ascii=False).encode())
             expected=body.get("revision")
             snapshot=getattr(tools_mod("versions.py"),"snapshot",None)
             def mutate(current):
@@ -3198,16 +3204,16 @@ class H(BaseHTTPRequestHandler):
         d=proj_dir(body.get("project")); nm=safe_proj(body.get("storyboard") or body.get("name") or "")
         p=os.path.realpath(os.path.join(d,"分镜",nm)) if d and nm else ""
         if not d or not nm.lower().endswith(".json") or not under(d,p) or not os.path.isfile(p):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目/分镜不合法"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid project/storyboard")},ensure_ascii=False).encode())
         try:
             mod=tools_mod("actor_pipeline.py")
             vendor_id=str(body.get("vendor_id") or "")
             if vendor_id and not any(v.get('id')==vendor_id and v.get('enabled') and (v.get('models') or {}).get('text') for v in load_vendors()):
-                raise ValueError('准备厂商不存在、未启用或未配置 text 模型')
+                raise ValueError(tr('Prep vendor not found, disabled, or has no text model'))
             if body.get('shot_ids') is not None and (not isinstance(body['shot_ids'],list) or not all(isinstance(x,str) for x in body['shot_ids'])):
-                raise ValueError('shot_ids 必须是字符串数组')
+                raise ValueError(tr('shot_ids must be an array of strings'))
             if body.get('context') is not None and not isinstance(body['context'],dict):
-                raise ValueError('context 必须是对象')
+                raise ValueError(tr('context must be an object'))
             import uuid
             request_dir=os.path.join(d,'演员','准备请求'); os.makedirs(request_dir,exist_ok=True)
             request_path=os.path.join(request_dir,uuid.uuid4().hex+'.json')
@@ -3228,7 +3234,7 @@ class H(BaseHTTPRequestHandler):
         p=os.path.realpath(os.path.join(d,"分镜",nm)) if d and nm else ""
         ref=str(body.get("run_id") or body.get("candidate") or "")
         if not d or not nm.lower().endswith(".json") or not ref or not under(d,p) or not os.path.isfile(p):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目/分镜/run_id 不合法"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid project/storyboard/run_id")},ensure_ascii=False).encode())
         try:
             mod=tools_mod("actor_pipeline.py")
             result=mod.apply_candidate(p,ref,expected_revision=body.get("revision"))
@@ -3247,7 +3253,7 @@ class H(BaseHTTPRequestHandler):
         p=os.path.realpath(os.path.join(d,"分镜",nm)) if d and nm else ""
         shot_ids=body.get("shot_ids") or ([body.get("shot_id")] if body.get("shot_id") else [])
         if not d or not nm.lower().endswith(".json") or not isinstance(shot_ids,list) or not shot_ids or not under(d,p) or not os.path.isfile(p):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目/分镜/shot_ids 不合法"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid project/storyboard/shot_ids")},ensure_ascii=False).encode())
         try:
             mod=tools_mod("actor_pipeline.py")
             result=mod.set_shot_lock(p,shot_ids,bool(body.get("locked")),expected_revision=body.get("revision"))
@@ -3266,7 +3272,7 @@ class H(BaseHTTPRequestHandler):
         shot_id=str(body.get("shot_id") or "")
         p=os.path.realpath(os.path.join(d,"分镜",nm)) if d and nm else ""
         if not d or not nm.lower().endswith(".json") or not shot_id or not under(d,p) or not os.path.isfile(p):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目/分镜/shot_id 不合法"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid project/storyboard/shot_id")},ensure_ascii=False).encode())
         try:
             board=json.load(open(p,encoding="utf-8"))
             actor_mod=tools_mod("actor_pipeline.py")
@@ -3288,17 +3294,17 @@ class H(BaseHTTPRequestHandler):
         d=proj_dir(body.get("project")); nm=safe_proj(body.get("storyboard") or body.get("name") or "")
         p=os.path.realpath(os.path.join(d,"分镜",nm)) if d and nm else ""
         if not d or not nm.lower().endswith(".json") or not under(d,p) or not os.path.isfile(p):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目/分镜不合法"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid project/storyboard")},ensure_ascii=False).encode())
         shots=body.get("shot_ids") or []
         if not isinstance(shots,list) or len(shots)>50:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"shot_ids 须为数组且不超过50个"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("shot_ids must be an array of at most 50 items")},ensure_ascii=False).encode())
         modes=body.get("modes") or ["baseline","style","stateful"]
         if not isinstance(modes,list) or any(str(x) not in ("baseline","style","stateful") for x in modes):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"modes 只能是 baseline/style/stateful"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("modes may only be baseline/style/stateful")},ensure_ascii=False).encode())
         try:
             repeats=max(1,min(int(body.get("repeats") or 2),20))
         except (TypeError,ValueError):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"repeats 必须是1~20的整数"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("repeats must be an integer from 1 to 20")},ensure_ascii=False).encode())
         cmd=[sys.executable,os.path.join(TOOLS,"evaluate_actor_ab.py"),p,
              "--modes",",".join(str(x) for x in modes),
              "--repeats",str(repeats)]
@@ -3309,7 +3315,7 @@ class H(BaseHTTPRequestHandler):
         if vid:
             vendor=next((x for x in load_vendors() if x.get("id")==vid and x.get("enabled") and (x.get("models") or {}).get("text")),None)
             if not vendor:
-                return self._send(400,"application/json",json.dumps({"ok":False,"err":"评分厂商不存在、未启用或未配置 text 模型"},ensure_ascii=False).encode())
+                return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Scoring vendor not found, disabled, or has no text model")},ensure_ascii=False).encode())
             cmd += ["--vendor",vid,"--providers",PROV]
         jid=self.spawn_job("acting_eval",cmd)
         return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":True,"id":jid,"job":True},ensure_ascii=False).encode())
@@ -3323,29 +3329,29 @@ class H(BaseHTTPRequestHandler):
         shot_id=str(body.get("shot_id") or ""); vendor_id=str(body.get("vendor_id") or body.get("provider_id") or "")
         p=os.path.realpath(os.path.join(d,"分镜",nm)) if d and nm else ""
         if not d or not nm.lower().endswith(".json") or not shot_id or not vendor_id or not under(d,p) or not os.path.isfile(p):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目/分镜/shot_id/vendor_id 不合法"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid project/storyboard/shot_id/vendor_id")},ensure_ascii=False).encode())
         try:
             actor_mod=tools_mod("actor_pipeline.py")
             board,_=actor_mod._read_board(p)
             main_ids=actor_mod.actor_ids_for_shot(board, shot_id, d) if hasattr(actor_mod, "actor_ids_for_shot") else []
             if not main_ids:
-                return self._send(422,"application/json",json.dumps({"ok":False,"err":"本镜没有主角演员，演员表现只支持主角；请在分镜中关联主角后再生成"},ensure_ascii=False).encode())
+                return self._send(422,"application/json",json.dumps({"ok":False,"err":tr("This shot has no lead actor; acting generation only supports leads. Link a lead on the storyboard first")},ensure_ascii=False).encode())
         except Exception as exc:
             return self._send(422,"application/json",json.dumps({"ok":False,"err":scrub_err(exc)},ensure_ascii=False).encode())
         vendor=next((x for x in load_vendors() if x.get("id")==vendor_id and x.get("enabled") and (x.get("models") or {}).get("text")),None)
         if not vendor:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"厂商不存在、未启用或未配置 text 模型"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Vendor not found, disabled, or has no text model")},ensure_ascii=False).encode())
         cmd=[sys.executable,os.path.join(TOOLS,"run_actor.py"),"--storyboard",p,"--shot",shot_id,
              "--vendor",vendor_id,"--providers",PROV]
         actor_mode=str(body.get("mode") or "stateful")
         if actor_mode not in ("style", "stateful"):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"演员 mode 只能是 style/stateful"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Acting mode may only be style/stateful")},ensure_ascii=False).encode())
         cmd += ["--mode", actor_mode]
         context=str(body.get("context") or "")
         if context:
             cp=os.path.realpath(os.path.join(d,context))
             if not under(d,cp) or not os.path.isfile(cp) or not cp.lower().endswith(".json"):
-                return self._send(400,"application/json",json.dumps({"ok":False,"err":"演员上下文路径不合法"},ensure_ascii=False).encode())
+                return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid acting context path")},ensure_ascii=False).encode())
             cmd += ["--context", cp]
         cmd += ["--draft-only"]
         jid=self.spawn_job("acting",cmd)
@@ -3381,18 +3387,18 @@ class H(BaseHTTPRequestHandler):
             return self._send(200,"application/json",json.dumps({"ok":bool(ok)},ensure_ascii=False).encode())
         d=proj_dir(body.get("project"))
         if not d:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目不存在"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Project not found")},ensure_ascii=False).encode())
         old_style = _SL.project_style(d)
         new_style = body.get("style") or {}
         if not isinstance(new_style,dict):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"style 必须是对象"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("style must be an object")},ensure_ascii=False).encode())
         _SL.set_project_style(d,new_style)
         refreshed = 0
         if (old_style.get("image"), old_style.get("anchor")) != (new_style.get("image"), new_style.get("anchor")):
             try:
                 refreshed = chatgpt_queue.refresh_queued_asset_jobs(d)
             except Exception as exc:
-                return self._send(500,"application/json",json.dumps({"ok":False,"err":f"风格已保存，但待生成资产队列刷新失败：{exc}"},ensure_ascii=False).encode())
+                return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("Style saved, but refreshing the pending asset queue failed: {exc}", exc=exc)},ensure_ascii=False).encode())
         return self._send(200,"application/json",json.dumps({"ok":True,"refreshed_asset_jobs":refreshed},ensure_ascii=False).encode())
 
     @route('POST', '/api/script/brief')
@@ -3403,13 +3409,13 @@ class H(BaseHTTPRequestHandler):
         body=json.loads(self.rfile.read(ln).decode("utf-8","replace") or b"{}")
         d=proj_dir(body.get("project"))
         if not d:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目不存在"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Project not found")},ensure_ascii=False).encode())
         patch=body.get("patch")
         if not isinstance(patch,dict):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"patch 必须是对象"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("patch must be an object")},ensure_ascii=False).encode())
         mod=tools_mod("brief.py")
         if mod is None:
-            return self._send(500,"application/json",json.dumps({"ok":False,"err":"brief.py 缺失"},ensure_ascii=False).encode())
+            return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("brief.py missing")},ensure_ascii=False).encode())
         try:
             brief_doc=mod.save_brief(d,patch)
         except ValueError as exc:
@@ -3426,10 +3432,10 @@ class H(BaseHTTPRequestHandler):
         d=proj_dir(body.get("project"))
         episode=str(body.get("episode") or "").strip()
         if not d or not episode:
-            return self._send(400,"application/json; charset=utf-8",json.dumps({"ok":False,"err":"项目或 episode 参数不合法"},ensure_ascii=False).encode())
+            return self._send(400,"application/json; charset=utf-8",json.dumps({"ok":False,"err":tr("Invalid project or episode")},ensure_ascii=False).encode())
         try:
             mod=tools_mod("episode_service.py")
-            if mod is None: raise ValueError("episode_service.py 缺失")
+            if mod is None: raise ValueError(tr("episode_service.py missing"))
             result=mod.delete_episode(d,episode)
             return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":True,**result},ensure_ascii=False).encode())
         except Exception as exc:
@@ -3443,10 +3449,10 @@ class H(BaseHTTPRequestHandler):
         body=json.loads(self.rfile.read(ln).decode("utf-8","replace") or b"{}")
         d=proj_dir(body.get("project"))
         if not d:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目不存在"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Project not found")},ensure_ascii=False).encode())
         idea=str(body.get("idea") or "").strip()
         if not idea and not os.path.isfile(os.path.join(d,"剧本","构想.txt")):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"缺少创作构想"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Missing creative brief")},ensure_ascii=False).encode())
         cmd=[sys.executable,os.path.join(TOOLS,"creation_pipeline.py"),"expand",d,
              "--eps",str(int(body.get("eps") or 6))]
         if idea: cmd+=["--idea",idea]
@@ -3465,7 +3471,7 @@ class H(BaseHTTPRequestHandler):
         kind=str(body.get("kind") or "").strip()
         name=str(body.get("name") or "").strip()
         if not d or kind not in ("character","scene","prop") or not name:
-            return self._send(400,"application/json; charset=utf-8",json.dumps({"ok":False,"err":"项目、kind 或素材名不合法"},ensure_ascii=False).encode())
+            return self._send(400,"application/json; charset=utf-8",json.dumps({"ok":False,"err":tr("Invalid project, kind, or asset name")},ensure_ascii=False).encode())
         keys={"character":"characters","scene":"scenes","prop":"props"}
         filenames={"character":"人物.json","scene":"场景.json","prop":"道具.json"}
         try:
@@ -3485,12 +3491,12 @@ class H(BaseHTTPRequestHandler):
                 # 后面的 current_rows==next_rows 判断会误认为无需落盘。
                 combined[key]=list(rows)
         except Exception as exc:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":f"读取资产档案失败：{exc}"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Failed to read asset file: {exc}", exc=exc)},ensure_ascii=False).encode())
         ident=str(body.get("id") or "").strip().lower()
         if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{1,63}",ident):
             ident=re.sub(r"[^a-z0-9]+","_",name.lower()).strip("_")[:56] or "asset"
         if any(str(item.get("id"))==ident for k in keys for item in combined[keys[k]]):
-            return self._send(409,"application/json",json.dumps({"ok":False,"err":f"资产 id 已存在：{ident}"},ensure_ascii=False).encode())
+            return self._send(409,"application/json",json.dumps({"ok":False,"err":tr("Asset id already exists: {id}", id=ident)},ensure_ascii=False).encode())
         parent=str(body.get("parent_ref") or "").strip() or None
         relation=str(body.get("relation") or "").strip() or None
         prompt=str(body.get("prompt") or "").strip()
@@ -3524,7 +3530,7 @@ class H(BaseHTTPRequestHandler):
         ref=f"@{kind}:{ident}"
         blocking=[issue for issue in issues if issue.get("ref")==ref]
         if blocking:
-            return self._send(422,"application/json; charset=utf-8",json.dumps({"ok":False,"err":"新素材关系无法解析","issues":blocking},ensure_ascii=False).encode())
+            return self._send(422,"application/json; charset=utf-8",json.dumps({"ok":False,"err":tr("Could not parse the new asset relationship"),"issues":blocking},ensure_ascii=False).encode())
         try:
             versions_mod=tools_mod("versions.py")
             snapshot=getattr(versions_mod,"snapshot",None) if versions_mod else None
@@ -3543,7 +3549,7 @@ class H(BaseHTTPRequestHandler):
                     raw[key]=next_rows
                     with open(path,"w",encoding="utf-8") as fh: json.dump(raw,fh,ensure_ascii=False,indent=1)
         except Exception as exc:
-            return self._send(500,"application/json",json.dumps({"ok":False,"err":f"素材写入失败：{exc}"},ensure_ascii=False).encode())
+            return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("Failed to write asset: {exc}", exc=exc)},ensure_ascii=False).encode())
         registry_mod=tools_mod("asset_registry.py")
         rows=registry_mod.AssetRegistry(d).list() if registry_mod else []
         created=next((row for row in rows if row.get("ref")==ref),{"ref":ref,"kind":kind,"id":ident,"name":name})
@@ -3558,10 +3564,10 @@ class H(BaseHTTPRequestHandler):
         d=proj_dir(body.get("project")); ref=str(body.get("ref") or "").strip()
         patch=body.get("patch") if isinstance(body.get("patch"),dict) else body.get("fields")
         if not d or not ref or not isinstance(patch,dict):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目、ref、patch 参数不合法"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid project, ref, or patch")},ensure_ascii=False).encode())
         try:
             mod=tools_mod("asset_service.py")
-            if mod is None: raise ValueError("asset_service.py 缺失")
+            if mod is None: raise ValueError(tr("asset_service.py missing"))
             result=mod.edit_asset(d,ref,patch,expected_revision=body.get("expected_revision"))
             registry_mod=tools_mod("asset_registry.py")
             rows=registry_mod.AssetRegistry(d).list() if registry_mod else []
@@ -3578,10 +3584,10 @@ class H(BaseHTTPRequestHandler):
         d=proj_dir(body.get("project"))
         updates=body.get("updates")
         if not d or not isinstance(updates,list) or not updates:
-            return self._send(400,"application/json; charset=utf-8",json.dumps({"ok":False,"err":"项目或 updates 不合法"},ensure_ascii=False).encode())
+            return self._send(400,"application/json; charset=utf-8",json.dumps({"ok":False,"err":tr("Invalid project or updates")},ensure_ascii=False).encode())
         relmod=tools_mod("asset_relations.py")
         if relmod is None:
-            return self._send(500,"application/json",json.dumps({"ok":False,"err":"资产关系模块缺失"},ensure_ascii=False).encode())
+            return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("Asset relationship module missing")},ensure_ascii=False).encode())
         kind_keys={"character":"characters","scene":"scenes","prop":"props"}
         file_data={}
         combined={}
@@ -3589,7 +3595,7 @@ class H(BaseHTTPRequestHandler):
             for kind,key in kind_keys.items():
                 path=os.path.join(d,"素材",{"character":"人物.json","scene":"场景.json","prop":"道具.json"}[kind])
                 if not os.path.isfile(path):
-                    return self._send(404,"application/json",json.dumps({"ok":False,"err":f"资产档案不存在：{os.path.basename(path)}"},ensure_ascii=False).encode())
+                    return self._send(404,"application/json",json.dumps({"ok":False,"err":tr("Asset file not found: {name}", name=os.path.basename(path))},ensure_ascii=False).encode())
                 raw=json.load(open(path,encoding="utf-8"))
                 rows=raw.get(key) if isinstance(raw,dict) else raw
                 if not isinstance(rows,list): rows=[]
@@ -3598,22 +3604,22 @@ class H(BaseHTTPRequestHandler):
                 # 才能与磁盘原值比较并真正触发 project_store 写入。
                 combined[key]=copy.deepcopy(rows)
         except Exception as exc:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":f"读取资产档案失败：{exc}"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Failed to read asset file: {exc}", exc=exc)},ensure_ascii=False).encode())
         changed=[]
         for update in updates:
             if not isinstance(update,dict):
                 continue
             raw_ref=str(update.get("ref") or "").strip().lstrip("@")
             if ":" not in raw_ref:
-                return self._send(400,"application/json",json.dumps({"ok":False,"err":"关系更新缺少 @kind:id ref"},ensure_ascii=False).encode())
+                return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Relationship update is missing an @kind:id ref")},ensure_ascii=False).encode())
             head,ident=raw_ref.split(":",1)
             kind=relmod._kind(head) if hasattr(relmod,"_kind") else head
             key=kind_keys.get(kind)
             if not key or not ident:
-                return self._send(400,"application/json",json.dumps({"ok":False,"err":f"关系 ref 不合法：{update.get('ref')}"},ensure_ascii=False).encode())
+                return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid relationship ref: {ref}", ref=update.get("ref"))},ensure_ascii=False).encode())
             item=next((x for x in combined[key] if isinstance(x,dict) and str(x.get("id") or "") == ident),None)
             if item is None:
-                return self._send(404,"application/json",json.dumps({"ok":False,"err":f"找不到资产：@{kind}:{ident}"},ensure_ascii=False).encode())
+                return self._send(404,"application/json",json.dumps({"ok":False,"err":tr("Asset not found: @{kind}:{id}", kind=kind, id=ident)},ensure_ascii=False).encode())
             before_item=copy.deepcopy(item)
             for field in ("parent_ref","relation","derived_from"):
                 if field in update:
@@ -3652,15 +3658,15 @@ class H(BaseHTTPRequestHandler):
                 deep_parent_issues.append({
                     "ref": ref,
                     "field": "parent_ref",
-                    "message": "资产关系最多两层，不能把资产挂到子素材下",
+                    "message": tr("Asset relationships are at most two levels; cannot attach under a child asset"),
                 })
         if deep_parent_issues:
             return self._send(422,"application/json; charset=utf-8",json.dumps(
-                {"ok":False,"err":"资产关系最多两层，不能挂到子素材下","issues":deep_parent_issues},
+                {"ok":False,"err":tr("Asset relationships are at most two levels; cannot attach under a child asset"),"issues":deep_parent_issues},
                 ensure_ascii=False).encode())
         blocking=[issue for issue in issues if issue.get("ref") in changed_set]
         if blocking:
-            return self._send(422,"application/json; charset=utf-8",json.dumps({"ok":False,"err":"资产关系无法保存","issues":blocking},ensure_ascii=False).encode())
+            return self._send(422,"application/json; charset=utf-8",json.dumps({"ok":False,"err":tr("Could not save asset relationships"),"issues":blocking},ensure_ascii=False).encode())
         try:
             versions_mod=tools_mod("versions.py")
             snapshot=getattr(versions_mod,"snapshot",None) if versions_mod else None
@@ -3686,7 +3692,7 @@ class H(BaseHTTPRequestHandler):
         except Exception as exc:
             if project_store and isinstance(exc,project_store.RevisionConflict):
                 return self._send(409,"application/json",json.dumps({"ok":False,"err":scrub_err(exc)},ensure_ascii=False).encode())
-            return self._send(500,"application/json",json.dumps({"ok":False,"err":f"关系写入失败：{exc}"},ensure_ascii=False).encode())
+            return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("Failed to write relationships: {exc}", exc=exc)},ensure_ascii=False).encode())
         try:
             registry_mod=tools_mod("asset_registry.py")
             rows=registry_mod.AssetRegistry(d).list() if registry_mod else []
@@ -3702,7 +3708,7 @@ class H(BaseHTTPRequestHandler):
         body=json.loads(self.rfile.read(ln).decode("utf-8","replace") or b"{}")
         d=proj_dir(body.get("project"))
         if not d:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目不存在"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Project not found")},ensure_ascii=False).encode())
         cmd=[sys.executable,os.path.join(TOOLS,"gen_asset_images.py"),d,
              "--kind",str(body.get("kind") or "all")]
         try:
@@ -3717,19 +3723,19 @@ class H(BaseHTTPRequestHandler):
         state_id=str(body.get("state_id") or "").strip()
         if state_id:
             if not re.fullmatch(r"[\w\-]{1,64}", state_id):
-                return self._send(400,"application/json; charset=utf-8",json.dumps({"ok":False,"err":"state_id 不合法"},ensure_ascii=False).encode())
+                return self._send(400,"application/json; charset=utf-8",json.dumps({"ok":False,"err":tr("Invalid state_id")},ensure_ascii=False).encode())
             cmd+=["--state-id",state_id]
         vendor_id=str(body.get("vendor_id") or "").strip()
         if vendor_id:
             vendor=next((v for v in load_vendors() if v.get("id")==vendor_id),None)
             if not vendor or not vendor.get("enabled") or not (vendor.get("models") or {}).get("image"):
                 return self._send(400,"application/json; charset=utf-8",json.dumps(
-                    {"ok":False,"err":"所选生图厂商未启用或未配置 image 模型"},ensure_ascii=False).encode())
+                    {"ok":False,"err":tr("Selected image vendor is disabled or has no image model")},ensure_ascii=False).encode())
             preflight = asset_image_preflight(d, str(body.get("kind") or "all"), body.get("id"), vendor)
             if not preflight.get("ok"):
                 return self._send(400,"application/json; charset=utf-8",json.dumps(
                     {"ok":False,
-                     "err":preflight.get("err") or "资产图片任务前置检查失败",
+                     "err":preflight.get("err") or tr("Asset image job preflight failed"),
                      "asset_plan":preflight.get("plans") or []},ensure_ascii=False).encode())
             cmd+=["--vendor",vendor_id]
         # ComfyUI 是单队列串行执行：并发提交资产生图只会在 ComfyUI 侧排队，
@@ -3740,7 +3746,7 @@ class H(BaseHTTPRequestHandler):
                         and any("gen_asset_images.py" in str(c) for c in (j.get("fullcmd") or []))]
         if busy_asset:
             return self._send(409,"application/json; charset=utf-8",json.dumps(
-                {"ok":False,"err":f"已有资产生图任务运行中（#{busy_asset[0]['id']}），请等它完成再提交——生图后端单队列串行，并发提交只会排队超时"},ensure_ascii=False).encode())
+                {"ok":False,"err":tr("An asset image job is already running (#{id}); wait for it to finish. The image backend is a single serial queue, so extra submits only time out", id=busy_asset[0]["id"])},ensure_ascii=False).encode())
         jid=self.spawn_job("creation",cmd)
         return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":True,"id":jid,"job":True},ensure_ascii=False).encode())
 
@@ -3750,7 +3756,7 @@ class H(BaseHTTPRequestHandler):
         body=json.loads(self.rfile.read(ln).decode("utf-8","replace") or b"{}")
         d=proj_dir(body.get("project")); kind=str(body.get("kind") or ""); key=str(body.get("id") or "")
         if not d or kind not in ("character","scene","prop") or not key or not safe_proj(key):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"project/kind/id 不合法"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid project/kind/id")},ensure_ascii=False).encode())
         import importlib.util as _iu
         _sp=_iu.spec_from_file_location("gai",os.path.join(TOOLS,"gen_asset_images.py"))
         g=_iu.module_from_spec(_sp); _sp.loader.exec_module(g)
@@ -3767,7 +3773,7 @@ class H(BaseHTTPRequestHandler):
         rel=str(body.get("p") or ""); ts=str(body.get("ts") or "")
         pth=os.path.normpath(os.path.join(VIDEO,rel))
         if not under(VIDEO,pth) or not re.fullmatch(r"\d{8}_\d{6}(?:_\d+)?",ts):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"路径或版本号不合法"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid path or version number")},ensure_ascii=False).encode())
         import importlib.util as _iu
         _sp=_iu.spec_from_file_location("versions",os.path.join(TOOLS,"versions.py"))
         m=_iu.module_from_spec(_sp); _sp.loader.exec_module(m)
@@ -3782,7 +3788,7 @@ class H(BaseHTTPRequestHandler):
         rel=str(body.get("p") or ""); ts=str(body.get("ts") or "")
         pth=os.path.normpath(os.path.join(VIDEO,rel))
         if not under(VIDEO,pth) or not re.fullmatch(r"\d{8}_\d{6}(?:_\d+)?",ts):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"路径或版本号不合法"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid path or version number")},ensure_ascii=False).encode())
         import importlib.util as _iu
         _sp=_iu.spec_from_file_location("versions",os.path.join(TOOLS,"versions.py"))
         m=_iu.module_from_spec(_sp); _sp.loader.exec_module(m)
@@ -3800,7 +3806,7 @@ class H(BaseHTTPRequestHandler):
         d=proj_dir(q.get("project",[""])[0]); nm=safe_proj(q.get("name",[""])[0])
         p=os.path.join(d,"分镜",nm) if d and nm else ""
         if not d or not nm.lower().endswith(".json") or not under(d,p) or not os.path.isfile(p):
-            return self._send(404,"application/json",json.dumps({"ok":False,"err":"分镜不存在"},ensure_ascii=False).encode())
+            return self._send(404,"application/json",json.dumps({"ok":False,"err":tr("Storyboard not found")},ensure_ascii=False).encode())
         try:
             rev=project_store.current_revision(p)
         except Exception as exc:
@@ -3817,7 +3823,7 @@ class H(BaseHTTPRequestHandler):
         p=os.path.join(d,"分镜",nm) if d and nm else ""
         shots=body.get("shots")
         if not d or not nm.lower().endswith(".json") or not under(d,p) or not os.path.isfile(p) or not isinstance(shots,list) or not shots:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目/分镜/shots 不合法"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid project/storyboard/shots")},ensure_ascii=False).encode())
         # 字段级校验+清洗：dur 必须可转数值并夹取到单镜权威档；文本字段裁剪防超大；id 必填去重。
         # 坏行拒收（不让空串/非数字进分镜把下游 float() 打崩），版本快照兜底回滚。
         # 时长档不再在这里写数字：09-25 定版后由 production_studio 的常量单点持有（原来三处 2~12/1.5~15/1~60 各说各话）。
@@ -3826,17 +3832,17 @@ class H(BaseHTTPRequestHandler):
         seen_ids=set(); cleaned=[]
         for idx,shot in enumerate(shots):
             if not isinstance(shot,dict) or not shot.get("id"):
-                return self._send(400,"application/json",json.dumps({"ok":False,"err":f"第{idx+1}行缺 id"},ensure_ascii=False).encode())
+                return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Row {n} is missing id", n=idx+1)},ensure_ascii=False).encode())
             sid=str(shot["id"])
             if sid in seen_ids:
-                return self._send(400,"application/json",json.dumps({"ok":False,"err":f"镜号重复: {sid}"},ensure_ascii=False).encode())
+                return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Duplicate shot id: {id}", id=sid)},ensure_ascii=False).encode())
             seen_ids.add(sid)
             try:
                 dur=float(shot.get("dur") if shot.get("dur") not in ("",None) else 4.0)
             except (TypeError,ValueError):
-                return self._send(400,"application/json",json.dumps({"ok":False,"err":f"{sid} 时长不是数字: {shot.get('dur')!r}"},ensure_ascii=False).encode())
+                return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("{id} duration is not a number: {dur}", id=sid, dur=repr(shot.get("dur")))},ensure_ascii=False).encode())
             if not (DMIN<=dur<=DMAX):
-                return self._send(400,"application/json",json.dumps({"ok":False,"err":f"{sid} 时长超出单镜权威档 {DMIN:g}~{DMAX:g}s: {dur}（台词更长就该拆镜，不是把镜拉长）"},ensure_ascii=False).encode())
+                return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("{id} duration is outside the single-shot range {dmin:g}~{dmax:g}s: {dur} (split the shot if dialogue is longer; do not stretch it)", id=sid, dmin=DMIN, dmax=DMAX, dur=dur)},ensure_ascii=False).encode())
             shot["dur"]=round(dur,2)
             for k in ("action","prompt","content","sound","lighting","rig","lens"):
                 v=shot.get(k)
@@ -3846,7 +3852,7 @@ class H(BaseHTTPRequestHandler):
         # 乐观锁基线必传：③ 是整组回写，缺基线就等于允许静默盖掉 ⑦/⑤ 期间写好的提示词。
         base_rev=str(body.get("revision") or "")
         if not base_rev:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"缺少分镜基线 revision：请先 GET /api/storyboard/revision 再保存（避免整组回写盖掉 ⑦/⑤ 的改动）"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Missing storyboard baseline revision: GET /api/storyboard/revision before saving (so a full rewrite does not overwrite ⑦/⑤ edits)")},ensure_ascii=False).encode())
         try:
             _, rev = tools_mod('production_studio.py').save_shots(d, nm, cleaned, base_rev)
         except Exception as exc:
@@ -3873,7 +3879,7 @@ class H(BaseHTTPRequestHandler):
         d=proj_dir(body.get("project")); nm=safe_proj(body.get("name") or "")
         p=os.path.join(d,"分镜",nm) if d and nm else ""
         if not d or not nm.lower().endswith(".json") or not under(d,p) or not os.path.isfile(p):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"分镜不存在"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Storyboard not found")},ensure_ascii=False).encode())
         deleted=[]
         for target in (p, os.path.join(d,"分镜",nm[:-5]+"_分镜脚本.xlsx")):
             if os.path.isfile(target) and under(d,target):
@@ -3888,7 +3894,7 @@ class H(BaseHTTPRequestHandler):
         d=proj_dir(body.get("project")); nm=safe_proj(body.get("name") or "")
         p=os.path.join(d,"分镜",nm) if d and nm else ""
         if not d or not nm.lower().endswith(".json") or not under(d,p) or not os.path.isfile(p):
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"分镜不存在"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Storyboard not found")},ensure_ascii=False).encode())
         jid=self.spawn_job("creation",[sys.executable,os.path.join(TOOLS,"export_storyboard_xlsx.py"),p])
         return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":True,"id":jid,"job":True},ensure_ascii=False).encode())
 
@@ -3899,22 +3905,22 @@ class H(BaseHTTPRequestHandler):
         body=json.loads(self.rfile.read(ln).decode("utf-8","replace") or b"{}")
         d=proj_dir(body.get("project"))
         if not d:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目不存在"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Project not found")},ensure_ascii=False).encode())
         # plan v1：body.plan 给平面图名 → strategy_map --plan 底图模式；同时带 storyboard 时作底图叠加
         pl=safe_proj(body.get("plan") or "")
         plan_path=None
         if pl:
             plan_path=os.path.normpath(os.path.join(d,"推演",f"平面图_{pl}.plan.json"))
             if not under(d,plan_path) or not os.path.isfile(plan_path):
-                return self._send(400,"application/json",json.dumps({"ok":False,"err":"平面图不存在"},ensure_ascii=False).encode())
+                return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Floor plan not found")},ensure_ascii=False).encode())
         sb=str(body.get("storyboard") or "")
         cmd=[sys.executable,os.path.join(TOOLS,"strategy_map.py")]
         if sb:
             if not safe_proj(sb) or not sb.lower().endswith(".json") or not under(os.path.join(d,"分镜"),os.path.join(d,"分镜",sb)) or not os.path.isfile(os.path.join(d,"分镜",sb)):
-                return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目/分镜不合法"},ensure_ascii=False).encode())
+                return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid project/storyboard")},ensure_ascii=False).encode())
             cmd.append(os.path.join(d,"分镜",sb))
         elif not pl:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"需要 storyboard 或 plan 之一"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("storyboard or plan is required")},ensure_ascii=False).encode())
         if plan_path:
             cmd+=["--plan",plan_path]
         jid=self.spawn_job("creation",cmd)
@@ -3936,9 +3942,9 @@ class H(BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(ctx.content_length).decode("utf-8", "replace") or b"{}")
         d = proj_dir(body.get("project"))
         if not d:
-            return self._send(400, "application/json", json.dumps({"ok": False, "err": "项目不存在"}, ensure_ascii=False).encode())
+            return self._send(400, "application/json", json.dumps({"ok": False, "err": tr("Project not found")}, ensure_ascii=False).encode())
         if not tools_mod("gen_plan.py"):
-            return self._send(500, "application/json", json.dumps({"ok": False, "err": "gen_plan.py 缺失"}, ensure_ascii=False).encode())
+            return self._send(500, "application/json", json.dumps({"ok": False, "err": tr("gen_plan.py missing")}, ensure_ascii=False).encode())
         cmd = [sys.executable, os.path.join(TOOLS, "gen_plan.py"), d]
         if body.get("all_scenes"):
             cmd += ["--all-scenes"]
@@ -3953,18 +3959,18 @@ class H(BaseHTTPRequestHandler):
             else:
                 nm = safe_proj(body.get("name") or "")
                 if not nm:
-                    return self._send(400, "application/json", json.dumps({"ok": False, "err": "name 必填（平面图名），或改用 scene/all_scenes"}, ensure_ascii=False).encode())
+                    return self._send(400, "application/json", json.dumps({"ok": False, "err": tr("name is required (floor-plan name), or use scene/all_scenes")}, ensure_ascii=False).encode())
                 desc = str(body.get("scene_desc") or "").strip()
                 keyframe = str(body.get("keyframe") or "").strip()
                 if not desc and not keyframe:
-                    return self._send(400, "application/json", json.dumps({"ok": False, "err": "需要 scene_desc 或 keyframe 之一"}, ensure_ascii=False).encode())
+                    return self._send(400, "application/json", json.dumps({"ok": False, "err": tr("scene_desc or keyframe is required")}, ensure_ascii=False).encode())
                 cmd.append(nm)
                 if desc:
                     cmd += ["--scene-desc", desc]
                 if keyframe:
                     kf = os.path.normpath(os.path.join(d, keyframe)) if not os.path.isabs(keyframe) else os.path.normpath(keyframe)
                     if not under(d, kf) or not os.path.isfile(kf):
-                        return self._send(400, "application/json", json.dumps({"ok": False, "err": "关键帧不存在或越出项目目录"}, ensure_ascii=False).encode())
+                        return self._send(400, "application/json", json.dumps({"ok": False, "err": tr("Keyframe not found or outside the project directory")}, ensure_ascii=False).encode())
                     cmd += ["--keyframe", kf]
                 if body.get("zone"):
                     cmd += ["--zone", str(body["zone"])]
@@ -3977,13 +3983,13 @@ class H(BaseHTTPRequestHandler):
         d = proj_dir(q.get("project", [""])[0])
         p = self._plan_path(d, q.get("name", [""])[0]) if d else None
         if not d or not p:
-            return self._send(400, "application/json", json.dumps({"ok": False, "err": "项目/name 不合法"}, ensure_ascii=False).encode())
+            return self._send(400, "application/json", json.dumps({"ok": False, "err": tr("Invalid project/name")}, ensure_ascii=False).encode())
         if not os.path.isfile(p):
-            return self._send(404, "application/json", json.dumps({"ok": False, "err": "平面图不存在"}, ensure_ascii=False).encode())
+            return self._send(404, "application/json", json.dumps({"ok": False, "err": tr("Floor plan not found")}, ensure_ascii=False).encode())
         try:
             plan = json.load(open(p, encoding="utf-8"))
         except ValueError as exc:
-            return self._send(400, "application/json", json.dumps({"ok": False, "err": f"JSON 解析失败: {exc}"}, ensure_ascii=False).encode())
+            return self._send(400, "application/json", json.dumps({"ok": False, "err": tr("JSON parse failed: {err}", err=exc)}, ensure_ascii=False).encode())
         return self._send(200, "application/json; charset=utf-8", json.dumps(
             {"ok": True, "name": safe_proj(q.get("name", [""])[0]), "plan": plan}, ensure_ascii=False).encode())
 
@@ -3994,23 +4000,23 @@ class H(BaseHTTPRequestHandler):
         d = proj_dir(body.get("project"))
         p = self._plan_path(d, body.get("name") or "") if d else None
         if not d or not p:
-            return self._send(400, "application/json", json.dumps({"ok": False, "err": "项目/name 不合法"}, ensure_ascii=False).encode())
+            return self._send(400, "application/json", json.dumps({"ok": False, "err": tr("Invalid project/name")}, ensure_ascii=False).encode())
         plan = body.get("plan")
         if not isinstance(plan, dict):
-            return self._send(400, "application/json", json.dumps({"ok": False, "err": "plan 必须是对象"}, ensure_ascii=False).encode())
+            return self._send(400, "application/json", json.dumps({"ok": False, "err": tr("plan must be an object")}, ensure_ascii=False).encode())
         vm = tools_mod("validate_plan.py")
         if not vm:
-            return self._send(500, "application/json", json.dumps({"ok": False, "err": "validate_plan.py 缺失"}, ensure_ascii=False).encode())
+            return self._send(500, "application/json", json.dumps({"ok": False, "err": tr("validate_plan.py missing")}, ensure_ascii=False).encode())
         sc = os.path.join(d, "素材", "场景.json")
         scene_ids = vm.load_scene_ids(sc) if os.path.isfile(sc) else None
         vr = vm.validate_document(plan, scene_ids=scene_ids)
         if vr["errors"]:
             return self._send(400, "application/json; charset=utf-8", json.dumps(
-                {"ok": False, "err": f"校验未通过：{len(vr['errors'])} 错误",
+                {"ok": False, "err": tr("Validation failed: {n} error(s)", n=len(vr["errors"])),
                  "errors": vr["errors"], "warnings": vr["warnings"]}, ensure_ascii=False).encode())
         pm = tools_mod("plan_adapt.py")
         if not pm:
-            return self._send(500, "application/json", json.dumps({"ok": False, "err": "plan_adapt.py 缺失"}, ensure_ascii=False).encode())
+            return self._send(500, "application/json", json.dumps({"ok": False, "err": tr("plan_adapt.py missing")}, ensure_ascii=False).encode())
         pm.save_plan(d, body.get("name") or "", plan)   # 单一写入口：自带版本快照
         return self._send(200, "application/json; charset=utf-8", json.dumps(
             {"ok": True, "warnings": vr["warnings"]}, ensure_ascii=False).encode())
@@ -4020,7 +4026,7 @@ class H(BaseHTTPRequestHandler):
         u, q = ctx.url, ctx.query
         d = proj_dir(q.get("project", [""])[0])
         if not d:
-            return self._send(400, "application/json", json.dumps({"ok": False, "err": "项目不存在"}, ensure_ascii=False).encode())
+            return self._send(400, "application/json", json.dumps({"ok": False, "err": tr("Project not found")}, ensure_ascii=False).encode())
         out = []
         pdir = os.path.join(d, "推演")
         vm = tools_mod("validate_plan.py")
@@ -4065,25 +4071,25 @@ class H(BaseHTTPRequestHandler):
         body=json.loads(self.rfile.read(ln).decode("utf-8","replace") or "{}")
         d=proj_dir(body.get("project"))
         if not d:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目不存在"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Project not found")},ensure_ascii=False).encode())
         try:
             rebuild=tools_mod("rebuild_production.py")
             if rebuild is None:
-                raise ValueError("rebuild_production.py 缺失")
+                raise ValueError(tr("rebuild_production.py missing"))
             if u.path=="/api/production/affected":
                 refs=body.get("changed_refs") or body.get("asset_refs") or []
                 if not isinstance(refs,list) or not refs:
-                    raise ValueError("changed_refs 必须是非空数组")
+                    raise ValueError(tr("changed_refs must be a non-empty array"))
                 from production_state import mark_stale_for_asset
                 report=mark_stale_for_asset(d,[str(ref) for ref in refs])
                 return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":True,**report},ensure_ascii=False).encode())
             episode=str(body.get("episode") or "").strip() or None
             shot_ids=body.get("shot_ids")
             if shot_ids is not None and not isinstance(shot_ids,list):
-                raise ValueError("shot_ids 必须是数组")
+                raise ValueError(tr("shot_ids must be an array"))
             if u.path=="/api/production/episode":
                 if not episode:
-                    raise ValueError("episode 必填")
+                    raise ValueError(tr("episode is required"))
                 report=rebuild.rebuild_episode(d,episode)
             else:
                 report=rebuild.rebuild_prompts(d,episode=episode,shot_ids=shot_ids)
@@ -4099,7 +4105,7 @@ class H(BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(ctx.content_length).decode('utf-8', 'replace') or b'{}')
         d = proj_dir(body.get("project"))
         try:
-            if not d: raise ValueError("项目不存在")
+            if not d: raise ValueError(tr("Project not found"))
             result = tools_mod('production_jobs.py').enqueue(
                 d, {**body, 'action': 'redo_segment', 'scope': 'V', 'type': 'video'}, self.spawn_job, PROV)
             return self._send_run_json(200, result)
@@ -4112,7 +4118,7 @@ class H(BaseHTTPRequestHandler):
         # 片段重拍·拉片：把指定候选版本抽成帧条（≤48 帧，结果缓存复用）。
         try:
             d = proj_dir(ctx.query.get('project', [''])[0])
-            if not d: raise ValueError('项目不存在')
+            if not d: raise ValueError(tr('Project not found'))
             result = tools_mod('production_jobs.py').redo_frames(d, ctx.query.get('item_id', [''])[0])
             return self._send_run_json(200, result)
         except Exception as exc:
@@ -4124,7 +4130,7 @@ class H(BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(ctx.content_length).decode('utf-8', 'replace') or b'{}')
         d = proj_dir(body.get("project"))
         try:
-            if not d: raise ValueError("项目不存在")
+            if not d: raise ValueError(tr("Project not found"))
             result = tools_mod('production_jobs.py').redo_merge(d, body)
             return self._send_run_json(200, result)
         except Exception as exc:
@@ -4136,8 +4142,8 @@ class H(BaseHTTPRequestHandler):
         try:
             d = proj_dir(ctx.query.get('project', [''])[0])
             nonce = ctx.query.get('nonce', [''])[0]
-            if not d: raise ValueError('项目不存在')
-            if not re.fullmatch(r'[\w-]{12,100}', nonce or ''): raise ValueError('nonce 不合法')
+            if not d: raise ValueError(tr('Project not found'))
+            if not re.fullmatch(r'[\w-]{12,100}', nonce or ''): raise ValueError(tr('Invalid nonce'))
             found, item_id, status = False, '', ''
             mf = os.path.join(d, '创作', 'creation.json')
             if os.path.isfile(mf):
@@ -4156,7 +4162,7 @@ class H(BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(ctx.content_length).decode('utf-8', 'replace') or b'{}')
         d = proj_dir(body.get("project"))
         try:
-            if not d: raise ValueError("项目不存在")
+            if not d: raise ValueError(tr("Project not found"))
             result = tools_mod('production_jobs.py').delete_item(d, body)
             return self._send_run_json(200, result)
         except Exception as exc:
@@ -4171,9 +4177,9 @@ class H(BaseHTTPRequestHandler):
             cid=knowledge_save(str(body.get("skill") or "").strip(),str(body.get("trigger") or ""),
                                str(body.get("prescription") or "").strip(),str(body.get("example") or ""),
                                cid=str(body.get("id") or "") or None)
-            return self._send_run_json(200 if cid else 400,{"ok":bool(cid),"id":cid,**({} if cid else {"err":"知识卡内容不合法"})})
+            return self._send_run_json(200 if cid else 400,{"ok":bool(cid),"id":cid,**({} if cid else {"err":tr("Invalid knowledge-card content")})})
         ok=knowledge_delete(str(body.get("id") or ""))
-        return self._send_run_json(200 if ok else 404,{"ok":ok,**({} if ok else {"err":"知识卡不存在"})})
+        return self._send_run_json(200 if ok else 404,{"ok":ok,**({} if ok else {"err":tr("Knowledge card not found")})})
 
     @route('POST', '/api/script/episodes', '/api/script/overview', '/api/script/extract', '/api/script/storyboard', '/api/creation/package', '/api/creation/assemble', '/api/knowledge/build')
     def route_post_api_script_episodes(self, ctx):
@@ -4187,11 +4193,11 @@ class H(BaseHTTPRequestHandler):
             return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":True,"id":jid,"job":True},ensure_ascii=False).encode())
         d=proj_dir(body.get("project"))
         if not d:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目不存在"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Project not found")},ensure_ascii=False).encode())
         if u.path in ("/api/creation/package","/api/creation/assemble"):  # package 新名；assemble 旧名兼容
             sb=str(body.get("storyboard") or "")
             if not safe_proj(sb) or not sb.lower().endswith(".json") or not under(os.path.join(d,"分镜"),os.path.join(d,"分镜",sb)) or not os.path.isfile(os.path.join(d,"分镜",sb)):
-                return self._send(400,"application/json",json.dumps({"ok":False,"err":"分镜不存在"},ensure_ascii=False).encode())
+                return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Storyboard not found")},ensure_ascii=False).encode())
             cmd=[sys.executable,tool_path,"assemble",d,"--storyboard",sb]
         else:
             sub={"episodes":"episodes","overview":"overview","extract":"extract","storyboard":"storyboard"}[u.path.split("/")[-1]]
@@ -4213,7 +4219,7 @@ class H(BaseHTTPRequestHandler):
         body=json.loads(self.rfile.read(ctx.content_length).decode("utf-8","replace") or b"{}")
         d=proj_dir(body.get("project"))
         if not d:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目不存在"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Project not found")},ensure_ascii=False).encode())
         if u.path=="/api/units/build":
             cmd=[sys.executable,os.path.join(TOOLS,"creation_pipeline.py"),"units",d]
             try:
@@ -4237,7 +4243,7 @@ class H(BaseHTTPRequestHandler):
             return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":True,"id":jid,"job":True},ensure_ascii=False).encode())
         mod=tools_mod("story_units.py")
         if mod is None:
-            return self._send(500,"application/json",json.dumps({"ok":False,"err":"story_units.py 缺失"},ensure_ascii=False).encode())
+            return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("story_units.py missing")},ensure_ascii=False).encode())
         if u.path=="/api/units/check":
             return self._send(200,"application/json; charset=utf-8",json.dumps(mod.check(d),ensure_ascii=False).encode())
         if u.path=="/api/units/anchor":
@@ -4260,7 +4266,7 @@ class H(BaseHTTPRequestHandler):
         elif kind=="threads":
             res=mod.edit_threads(d,body.get("foreshadows"),body.get("hooks"))
         else:
-            res={"ok":False,"err":"kind 须为 episode|asset|outline|threads"}
+            res={"ok":False,"err":tr("kind must be episode|asset|outline|threads")}
         return self._send(200 if res.get("ok") else 400,"application/json; charset=utf-8",
                           json.dumps(res,ensure_ascii=False).encode())
 
@@ -4270,20 +4276,20 @@ class H(BaseHTTPRequestHandler):
         body=json.loads(self.rfile.read(ctx.content_length).decode("utf-8","replace") or b"{}")
         d=proj_dir(body.get("project"))
         if not d:
-            return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目不存在"},ensure_ascii=False).encode())
+            return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Project not found")},ensure_ascii=False).encode())
         tool_path=os.path.join(TOOLS,"creation_pipeline.py")
         if ctx.url.path == "/api/asset/regen-prompt":
             kind=str(body.get("kind") or "").strip(); ident=str(body.get("id") or "").strip()
             if kind not in ("character","scene","prop") or not re.fullmatch(r"[\w\-]{1,64}", ident or ""):
-                return self._send(400,"application/json",json.dumps({"ok":False,"err":"kind/id 不合法"},ensure_ascii=False).encode())
+                return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Invalid kind/id")},ensure_ascii=False).encode())
             cmd=[sys.executable,tool_path,"regen-prompt",d,"--kind",kind,"--id",ident]
         else:
             kind=str(body.get("kind") or "").strip()
             if kind not in ("人物","场景","道具"):
-                return self._send(400,"application/json",json.dumps({"ok":False,"err":"kind 须为 人物|场景|道具"},ensure_ascii=False).encode())
+                return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("kind must be 人物|场景|道具")},ensure_ascii=False).encode())
             ep=str(body.get("episode") or "").strip()
             if not ep:
-                return self._send(400,"application/json",json.dumps({"ok":False,"err":"缺少集号 episode"},ensure_ascii=False).encode())
+                return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("episode id is required")},ensure_ascii=False).encode())
             cmd=[sys.executable,tool_path,"extract-one",d,"--kind",kind,"--episode",ep]
         jid=self.spawn_job("creation",cmd)
         return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":True,"id":jid,"job":True},ensure_ascii=False).encode())
@@ -4301,25 +4307,25 @@ class H(BaseHTTPRequestHandler):
         if step=="blender_previs":
             jsp=os.path.normpath(os.path.join(VIDEO,raw[0] if raw else ""))
             if not under(VIDEO,jsp) or not os.path.isfile(jsp):
-                return self._send(400,"application/json",json.dumps({"ok":False,"err":"分镜 JSON 不存在"},ensure_ascii=False).encode())
+                return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Storyboard JSON not found")},ensure_ascii=False).encode())
             gen=tool("blender_previs.py")
             if not gen:
-                return self._send(500,"application/json",json.dumps({"ok":False,"err":"blender_previs.py 工具缺失"},ensure_ascii=False).encode())
+                return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("blender_previs.py missing")},ensure_ascii=False).encode())
             try:
                 _env=subprocess_env(); _env["PYTHONIOENCODING"]="utf-8"
                 r=subprocess.run([sys.executable,gen,jsp],capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=120,env=_env)
             except Exception as e:
-                return self._send(500,"application/json",json.dumps({"ok":False,"err":"生成器异常:"+scrub_err(e)},ensure_ascii=False).encode())
+                return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("Generator error: {err}", err=scrub_err(e))},ensure_ascii=False).encode())
             if r.returncode!=0:
-                return self._send(500,"application/json",json.dumps({"ok":False,"err":"生成失败:"+(r.stderr or r.stdout or "")[-800:]},ensure_ascii=False).encode())
+                return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("Generation failed: {err}", err=(r.stderr or r.stdout or "")[-800:])},ensure_ascii=False).encode())
             line=[l for l in (r.stdout or "").splitlines() if l.startswith("GEN_SCRIPT:")]
             if not line:
-                return self._send(500,"application/json",json.dumps({"ok":False,"err":"未拿到生成脚本路径"},ensure_ascii=False).encode())
+                return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("Did not get a generated script path")},ensure_ascii=False).encode())
             sp=line[0].split(":",1)[1].strip()
             code=open(sp,encoding="utf-8",errors="replace").read()
             with self.JLOCK:
                 self.JOBSEQ[0]+=1; jid=self.JOBSEQ[0]
-                self.JOBS[jid]={"id":jid,"step":step,"status":"running","out":"已生成: "+sp+"\n发送到 Blender MCP…","err":"",
+                self.JOBS[jid]={"id":jid,"step":step,"status":"running","out":tr("Generated: {path}", path=sp)+tr("\nSending to Blender MCP…"),"err":"",
                                 "cmd":["blender-mcp:9876",os.path.basename(sp)],"fullcmd":["blender-mcp:9876",sp],
                                 "attempts":1,"attempt_id":f"{jid}-a1","write_revoked":False,"process_alive":False,
                                 "started_at":time.time(),"updated_at":time.time()}
@@ -4342,13 +4348,13 @@ class H(BaseHTTPRequestHandler):
                     ok='"status": "success"' in resp or '"status":"success"' in resp
                     with self.JLOCK:
                         self.JOBS[jid].update(status="done" if ok else "failed",ok=ok,
-                            out=("已生成脚本: "+sp+"\n"+resp)[-8000:],
+                            out=(tr("Generated script: {path}", path=sp)+"\n"+resp)[-8000:],
                             updated_at=time.time())
                     self._persist_job(jid)
                 except Exception as e:
                     with self.JLOCK:
                         self.JOBS[jid].update(status="failed",ok=False,
-                            err="MCP 发送失败（脚本已生成，可在 ⑥ 页签点「发送构建脚本」重试；Blender 是否开着 9876？）: "+scrub_err(e),
+                            err=tr("MCP send failed (script was generated; retry Send build script on tab ⑥; is Blender listening on 9876?): {err}", err=scrub_err(e)),
                             updated_at=time.time())
                     self._persist_job(jid)
             threading.Thread(target=_mcp2,daemon=True).start()
@@ -4356,7 +4362,7 @@ class H(BaseHTTPRequestHandler):
         if step=="openblend":
             p=os.path.normpath(os.path.join(VIDEO,raw[0] if raw else ""))
             if not under(VIDEO,p) or not os.path.isfile(p):
-                return self._send(400,"application/json",json.dumps({"ok":False,"err":"文件不存在"}).encode())
+                return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("File not found")}).encode())
             try:
                 os.startfile(p)
                 return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":True,"opened":os.path.basename(p)},ensure_ascii=False).encode())
@@ -4365,17 +4371,17 @@ class H(BaseHTTPRequestHandler):
         if step=="blender_render":
             blend=os.path.normpath(os.path.join(VIDEO,raw[0] if raw else ""))
             if not under(VIDEO,blend) or not os.path.isfile(blend):
-                return self._send(400,"application/json",json.dumps({"ok":False,"err":"blend 文件不存在"}).encode())
+                return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("blend file not found")}).encode())
             exe=find_blender()
             if not exe:
-                return self._send(500,"application/json",json.dumps({"ok":False,"err":"未找到 blender.exe"}).encode())
+                return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("blender.exe not found")}).encode())
             # 包一层：渲完帧序列后自动 ffmpeg 合成 mp4，避免产物只有 PNG 看不到结果
             jid=self.spawn_job(step,[sys.executable,os.path.join(TOOLS,"blender_render_wrap.py"),blend])
             return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":True,"id":jid,"job":True},ensure_ascii=False).encode())
         if step=="blender_build":
             sp=os.path.normpath(os.path.join(VIDEO,raw[0] if raw else ""))
             if not under(VIDEO,sp) or not os.path.isfile(sp):
-                return self._send(400,"application/json",json.dumps({"ok":False,"err":"构建脚本不存在"}).encode())
+                return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Build script not found")}).encode())
             code=open(sp,encoding="utf-8",errors="replace").read()
             with self.JLOCK:
                 self.JOBSEQ[0]+=1; jid=self.JOBSEQ[0]
@@ -4406,7 +4412,7 @@ class H(BaseHTTPRequestHandler):
                     self._persist_job(jid)
                 except Exception as e:
                     with self.JLOCK:
-                        self.JOBS[jid].update(status="failed",ok=False,err="MCP 连接失败（Blender 是否开着 9876？）: "+scrub_err(e),
+                        self.JOBS[jid].update(status="failed",ok=False,err=tr("MCP connection failed (is Blender listening on 9876?): {err}", err=scrub_err(e)),
                             updated_at=time.time())
                     self._persist_job(jid)
             threading.Thread(target=_mcp,daemon=True).start()
@@ -4414,33 +4420,33 @@ class H(BaseHTTPRequestHandler):
         if step=="h264":
             src=os.path.normpath(os.path.join(VIDEO,raw[0]))
             if not under(VIDEO,src) or not os.path.isfile(src):
-                return self._send(400,"application/json",json.dumps({"ok":False,"err":"文件不存在"}).encode())
+                return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("File not found")}).encode())
             dst=src.rsplit(".",1)[0]+"_H264.mp4"
             jid=self.spawn_job(step,["ffmpeg","-y","-i",src,"-c:v","libx264","-pix_fmt","yuv420p","-movflags","+faststart",dst])
             return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":True,"id":jid,"job":True},ensure_ascii=False).encode())
         scr=mp.get(step)
         if not scr and step in ("render","plan","lapdoc","docs","fill","draft","explain_ai","silhouette"):
-            return self._send(410,"application/json",json.dumps({"ok":False,"err":f"步骤 {step} 已下线（legacy）——render 用 /api/whiterange/run；fill 用 /api/analysis/ai；explain_ai 用 /api/explain/run；其余已由创作/拆片专用路由取代"},ensure_ascii=False).encode())
-        if not scr or not tool(scr): return self._send(500,"application/json",json.dumps({"ok":False,"err":"工具缺失:"+str(scr)}).encode())
+            return self._send(410,"application/json",json.dumps({"ok":False,"err":tr("Step {step} is retired (legacy) — render: /api/whiterange/run; fill: /api/analysis/ai; explain_ai: /api/explain/run; the rest moved to dedicated creation/breakdown routes", step=step)},ensure_ascii=False).encode())
+        if not scr or not tool(scr): return self._send(500,"application/json",json.dumps({"ok":False,"err":tr("Tool missing: {name}", name=scr)}).encode())
         args=[]
         for i,a in enumerate(raw):
             a=str(a)
             if a.startswith("projects/"):
                 p=os.path.normpath(os.path.join(VIDEO,a))
                 if not under(VIDEO,p):
-                    return self._send(400,"application/json",json.dumps({"ok":False,"err":"路径越界:"+a}).encode())
+                    return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Path out of bounds: {path}", path=a)}).encode())
                 if i>0 and str(raw[i-1])=="--out":
                     os.makedirs(os.path.dirname(p),exist_ok=True)
                 elif i>0 and str(raw[i-1])=="--outdir":
                     os.makedirs(p,exist_ok=True)
                 elif not (os.path.exists(p) or os.path.isdir(os.path.dirname(p))):
-                    return self._send(400,"application/json",json.dumps({"ok":False,"err":"路径不存在:"+a}).encode())
+                    return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Path not found: {path}", path=a)}).encode())
                 args.append(p)
             else:
                 # 绝对路径（C:\ / /c/ / UNC）与含 ../ 的相对路径统一过 under-root
                 # 校验（工作区根 + Downloads 只读源豁免），防止 --out 写出工作区。
                 if looks_like_path_arg(a) and not run_arg_path_ok(a):
-                    return self._send(400,"application/json",json.dumps({"ok":False,"err":"路径越界:"+a}).encode())
+                    return self._send(400,"application/json",json.dumps({"ok":False,"err":tr("Path out of bounds: {path}", path=a)}).encode())
                 args.append(a)
         jid=self.spawn_job(step,[sys.executable,tool(scr)]+args)
         return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":True,"id":jid,"job":True},ensure_ascii=False).encode())
@@ -4498,80 +4504,84 @@ def heartbeat429(handler_cls):
                 with handler_cls.JLOCK:
                     jobs=[dict(v) for v in (handler_cls.JOBS or {}).values()]
                 for j in jobs:
-                    jid=j.get("id")
-                    blob=((j.get("out") or "")+(j.get("err") or "")).lower()
-                    cmd_blob = " ".join(str(x) for x in (j.get("fullcmd") or j.get("cmd") or [])).lower()
-                    # 生图 HTTP 超时可能只是客户端提前断开，服务端仍在生成；自动重跑会重复扣费。
-                    # 让生图任务保持失败待人工确认，429/卡死等其它任务仍按原策略自愈。
-                    image_create = (j.get("step") in ("create", "create_batch") and "--type image" in cmd_blob)
-                    image_timeout = image_create and ("超时" in blob or "timeout" in blob)
-                    hit=(j.get("status")=="failed" and j.get("attempts",1)<3
-                         and not image_timeout
-                         and (re.search(r"\b429\b|rate[\s_-]?limit", blob) is not None
-                              or any(w in blob for w in ("超时","timeout","无输出","卡死"))))
-                    stamp=j.get("updated_at", j.get("started_at", now))
-                    # 生图请求等待期间可能长时间没有 stdout；只要子进程仍存活就不要按“卡死”杀掉重跑。
-                    # production worker（H3 视频 326 帧可 >1h）同理：进程存活且有自带轮询超时，不按卡死强杀。
-                    prod_worker = 'production_jobs.py' in cmd_blob
-                    stale=(j.get("status")=="running" and now-float(stamp or 0)>3600
-                           and not ((image_create or prod_worker) and j.get("process_alive")))
-                    if not hit and not stale and j.get("status")!="cancelling":
-                        continue
-                    jj=None; full=None; retry=False
-                    with handler_cls.JLOCK:
-                        jj=handler_cls.JOBS.get(jid)
-                        if not jj or jj.get("status") not in ("failed","running","cancelling"):
+                    job_token=set_lang(j.get("lang") or "en")
+                    try:
+                        jid=j.get("id")
+                        blob=((j.get("out") or "")+(j.get("err") or "")).lower()
+                        cmd_blob = " ".join(str(x) for x in (j.get("fullcmd") or j.get("cmd") or [])).lower()
+                        # 生图 HTTP 超时可能只是客户端提前断开，服务端仍在生成；自动重跑会重复扣费。
+                        # 让生图任务保持失败待人工确认，429/卡死等其它任务仍按原策略自愈。
+                        image_create = (j.get("step") in ("create", "create_batch") and "--type image" in cmd_blob)
+                        image_timeout = image_create and ("超时" in blob or "timeout" in blob)
+                        hit=(j.get("status")=="failed" and j.get("attempts",1)<3
+                             and not image_timeout
+                             and (re.search(r"\b429\b|rate[\s_-]?limit", blob) is not None
+                                  or any(w in blob for w in ("超时","timeout","无输出","卡死","no output","stuck"))))
+                        stamp=j.get("updated_at", j.get("started_at", now))
+                        # 生图请求等待期间可能长时间没有 stdout；只要子进程仍存活就不要按“卡死”杀掉重跑。
+                        # production worker（H3 视频 326 帧可 >1h）同理：进程存活且有自带轮询超时，不按卡死强杀。
+                        prod_worker = 'production_jobs.py' in cmd_blob
+                        stale=(j.get("status")=="running" and now-float(stamp or 0)>3600
+                               and not ((image_create or prod_worker) and j.get("process_alive")))
+                        if not hit and not stale and j.get("status")!="cancelling":
                             continue
-                        if stale:   # 卡死：先撤销旧 attempt 写权限并终止进程，退出后才允许重试
-                            jj["status"]="cancelling"; jj["ok"]=False; jj["write_revoked"]=True
-                            jj["err"]="看门狗：60分钟无输出，正在终止旧任务"
-                            proc=handler_cls.PROCS.get(jid)
-                            if proc is not None:
-                                try:
-                                    # Windows: /T 连子进程树一起杀（白模/转码常再起 ffmpeg 子进程）
-                                    subprocess.run(["taskkill","/T","/F","/PID",str(proc.pid)],capture_output=True,timeout=15)
-                                except Exception:
-                                    try: proc.terminate()
-                                    except Exception: pass
-                            handler_cls._persist_job(handler_cls, jid)
-                            acted.append(f"#{jid} 卡死，终止旧任务")
-                            continue
-                        if jj.get("status")=="cancelling":
-                            proc=handler_cls.PROCS.get(jid)
-                            if proc is not None and proc.poll() is None:
-                                jj["process_alive"]=True
+                        jj=None; full=None; retry=False
+                        with handler_cls.JLOCK:
+                            jj=handler_cls.JOBS.get(jid)
+                            if not jj or jj.get("status") not in ("failed","running","cancelling"):
                                 continue
-                            jj["process_alive"]=False
-                            if jj.get("attempts", 1) >= 3:
-                                jj["status"]="failed"; jj["ok"]=False
-                                jj["err"]="看门狗：旧任务已终止，达到最大重试次数"
-                                jj["finished_at"]=time.time()
+                            if stale:   # 卡死：先撤销旧 attempt 写权限并终止进程，退出后才允许重试
+                                jj["status"]="cancelling"; jj["ok"]=False; jj["write_revoked"]=True
+                                jj["err"]=tr("Watchdog: no output for 60 minutes, stopping the old job")
+                                proc=handler_cls.PROCS.get(jid)
+                                if proc is not None:
+                                    try:
+                                        # Windows: /T 连子进程树一起杀（白模/转码常再起 ffmpeg 子进程）
+                                        subprocess.run(["taskkill","/T","/F","/PID",str(proc.pid)],capture_output=True,timeout=15)
+                                    except Exception:
+                                        try: proc.terminate()
+                                        except Exception: pass
+                                handler_cls._persist_job(handler_cls, jid)
+                                acted.append(f"#{jid} 卡死，终止旧任务")
                                 continue
-                        if jj.get("status")=="failed":
-                            # 429/超时类失败不再自动重跑（避免限流期反复烧钱），标记待人工重试并封顶
-                            jj["attempts"]=3
-                            jj["err"]=((jj.get("err") or "")+"[看门狗：429/超时类失败，待人工重试]")[-4000:]
-                            jj["updated_at"]=time.time()
-                            handler_cls._persist_job(handler_cls, jid)
-                            acted.append(f"#{jid} 429/超时失败，待人工重试")
-                            continue
-                        full=list(jj.get("fullcmd") or [])
-                        if not full:
-                            # 旧 schema 任务无 fullcmd（重启恢复的历史任务）：不可自动重跑，
-                            # 直接封顶 attempts 防止每轮被反复标记/跳过，日志留痕一次。
-                            jj["attempts"]=3
-                            jj["err"]=(jj.get("err") or "")+"[无重跑命令，跳过自动重试]"
-                            acted.append(f"#{jid} 无fullcmd封顶")
-                            continue
-                        retry=True
-                        jj["attempts"]=jj.get("attempts",1)+1
-                        aid=f"{jid}-a{jj['attempts']}"
-                        jj.update(status="running",attempt_id=aid,write_revoked=False,process_alive=False,err="",started_at=time.time(),updated_at=time.time(),
-                                  out=((jj.get("out") or "")+f"\n[看门狗] 卡死任务已终止，自动重试 第{jj['attempts']}次 {time.strftime('%H:%M')}\n")[-8000:])
-                    if retry and full:
-                        H._persist_job(H,jid)
-                        H._job_work(H,jid,full,aid)
-                        acted.append(f"#{jid} 自动重试(第{jj['attempts']}次)")
+                            if jj.get("status")=="cancelling":
+                                proc=handler_cls.PROCS.get(jid)
+                                if proc is not None and proc.poll() is None:
+                                    jj["process_alive"]=True
+                                    continue
+                                jj["process_alive"]=False
+                                if jj.get("attempts", 1) >= 3:
+                                    jj["status"]="failed"; jj["ok"]=False
+                                    jj["err"]=tr("Watchdog: old job stopped, max retries reached")
+                                    jj["finished_at"]=time.time()
+                                    continue
+                            if jj.get("status")=="failed":
+                                # 429/超时类失败不再自动重跑（避免限流期反复烧钱），标记待人工重试并封顶
+                                jj["attempts"]=3
+                                jj["err"]=((jj.get("err") or "")+tr("[Watchdog: 429/timeout failure, waiting for a manual retry]"))[-4000:]
+                                jj["updated_at"]=time.time()
+                                handler_cls._persist_job(handler_cls, jid)
+                                acted.append(f"#{jid} 429/超时失败，待人工重试")
+                                continue
+                            full=list(jj.get("fullcmd") or [])
+                            if not full:
+                                # 旧 schema 任务无 fullcmd（重启恢复的历史任务）：不可自动重跑，
+                                # 直接封顶 attempts 防止每轮被反复标记/跳过，日志留痕一次。
+                                jj["attempts"]=3
+                                jj["err"]=(jj.get("err") or "")+tr("[No rerun command, skipping auto-retry]")
+                                acted.append(f"#{jid} 无fullcmd封顶")
+                                continue
+                            retry=True
+                            jj["attempts"]=jj.get("attempts",1)+1
+                            aid=f"{jid}-a{jj['attempts']}"
+                            jj.update(status="running",attempt_id=aid,write_revoked=False,process_alive=False,err="",started_at=time.time(),updated_at=time.time(),
+                                      out=((jj.get("out") or "")+tr("\n[Watchdog] stuck job stopped, auto-retry #{n} {t}\n", n=jj["attempts"], t=time.strftime("%H:%M")))[-8000:])
+                        if retry and full:
+                            H._persist_job(H,jid)
+                            H._job_work(H,jid,full,aid)
+                            acted.append(f"#{jid} 自动重试(第{jj['attempts']}次)")
+                    finally:
+                        reset_lang(job_token)
             except Exception as e:
                 acted.append("巡检异常:"+str(e))
             if acted:

@@ -207,7 +207,7 @@ async function doExpandAll() {
         const message = e instanceof Error ? e.message : t('views.studio.genFailed')
         failures.push(t('views.studio.epError', { ep: episode, msg: message }))
         // 缺少构想属于全局前置条件，继续请求只会重复失败。
-        if (message.includes('缺少创作构想')) break
+        if (message.includes('缺少创作构想') || message.includes('Missing creative brief')) break
       } finally {
         done += 1
         allExpandProgress.value = { done, total: pending.length }

@@ -1,17 +1,16 @@
 # -*- coding: utf-8 -*-
 """Язык сообщений бэкенда (en / ru / zh).
 
-Исходный текст в коде остаётся китайским и служит ключом каталога, как в gettext:
-    tr("项目不存在")
-    tr("读取资产引用失败：{err}", err=scrub_err(exc))
+Исходный текст в коде — английский и служит ключом каталога:
+    tr("Project not found")
+    tr("Failed to read asset references: {err}", err=scrub_err(exc))
 (функция называется tr, а не _: в server.py `_` уже используется как служебная переменная.)
-Переводы лежат в tools/locales/<lang>.json ({"китайский текст": "перевод"}).
-Нет перевода или язык zh — возвращается исходный текст, поэтому поведение по умолчанию
-и тесты, проверяющие китайские сообщения, не меняются.
+Переводы лежат в tools/locales/<lang>.json ({"English source": "перевод"}).
+Нет перевода или язык en — возвращается исходный текст.
 
 Язык запроса задаёт сервер (Accept-Language → set_lang) в начале обработки запроса.
 Подпроцессы задач получают его через переменную окружения SLATE_LANG.
-Строки, которые фронтенд разбирает по шаблону (PROGRESS, DEPTH ->, 已生成脚本…), через tr() не пропускать.
+Строки, которые фронтенд разбирает по шаблону (PROGRESS, DEPTH ->), через tr() не пропускать.
 """
 import contextvars
 import json
@@ -19,7 +18,7 @@ import os
 import threading
 
 SUPPORTED = ("zh", "en", "ru")
-DEFAULT = "zh"
+DEFAULT = "en"
 ENV_KEY = "SLATE_LANG"
 _LOCALES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "locales")
 
@@ -90,7 +89,7 @@ def _catalog(lang):
 
 
 def tr(text, lang=None, **params):
-    """Перевод китайского исходного текста на язык запроса; {name} подставляются из params."""
+    """Перевод английского исходного текста на язык запроса; {name} подставляются из params."""
     code = normalize(lang) or current_lang()
     message = text if code == DEFAULT else (_catalog(code).get(text) or text)
     return message.format(**params) if params else message

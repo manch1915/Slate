@@ -106,7 +106,7 @@ class ScriptRepositoryTests(unittest.TestCase):
             ]}, ensure_ascii=False), encoding="utf-8")
             self.assertIsNone(server.storyboard_episode_error(td, "E1"))
             self.assertIn("E2", server.storyboard_episode_error(td, "E2"))
-            self.assertIn("剧本文本", server.storyboard_episode_error(td, "E2"))
+            self.assertIn("script text", server.storyboard_episode_error(td, "E2"))
 
 
 class AssetRefTests(unittest.TestCase):
