@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../i18n'
 import { useBoardSelection } from '../utils/useBoardSelection'
 // -*- coding: utf-8 -*-
 /** 平面推演页（⑥）：本页产物全部服务 AI 视频模型——平面图=布局参考(注入V请求)、走位战略图=运镜核对(人工)、拍摄资料包=逐镜资料固化。
@@ -29,9 +30,9 @@ const loading = ref(false)
 const busy = ref('')
 const tab = ref<'strategy' | 'shots' | 'aiplan'>('aiplan')
 const TABS = computed(() => [
-  { k: 'aiplan', label: '平面图' },                       // 主入口：AI 平面图（plan v1）——布局参考，注入 V 视频请求
-  { k: 'strategy', label: '走位战略图' },                 // 运镜/走位动态核对（人工）
-  { k: 'shots', label: '拍摄资料包 (' + (pkg.value?.shots?.length ?? 0) + ') · 脚本/素材' }
+  { k: 'aiplan', label: t('views.package.tab.aiplan') },                       // 主入口：AI 平面图（plan v1）——布局参考，注入 V 视频请求
+  { k: 'strategy', label: t('views.package.tab.strategy') },                 // 运镜/走位动态核对（人工）
+  { k: 'shots', label: t('views.package.tab.shots', { n: pkg.value?.shots?.length ?? 0 }) }
 ] as const)
 const currentShot = ref(0)
 const overlay = ref<{ visible: boolean; src: string; kind: 'image' | 'html'; title: string }>({ visible: false, src: '', kind: 'image', title: '' })
@@ -63,7 +64,7 @@ async function load() {
       const result = await fetchProjectFile<Pkg>(project, `推演/${rel}`)
       if (request === loadSeq) pkg.value = result
     }
-  } catch (e) { if (request === loadSeq) toast(e instanceof Error ? e.message : '推演数据加载失败', 'err') }
+  } catch (e) { if (request === loadSeq) toast(e instanceof Error ? e.message : t('views.package.loadFailed'), 'err') }
   finally { if (request === loadSeq) loading.value = false }
 }
 
@@ -77,19 +78,20 @@ function gotoShot(i: number) {
   if (tab.value !== 'strategy') tab.value = 'strategy'
 }
 
-async function run(label: string, fn: () => Promise<{ id?: number; err?: string }>, done?: () => void) {
-  busy.value = label
+async function run(key: string, fn: () => Promise<{ id?: number; err?: string }>, done?: () => void) {
+  const label = t('views.package.job.' + key)
+  busy.value = key
   try {
     const r = await fn()
-    if (!r.id) throw new Error(r.err || '任务未启动')
+    if (!r.id) throw new Error(r.err || t('views.package.jobNotStarted'))
     const j = await trackJob(r.id, label)
-    if (j.success) { toast(`${label}完成`, 'ok'); await done?.() } else throw new Error(j.err || `${label}失败`)
+    if (j.success) { toast(t('views.package.jobDone', { label }), 'ok'); await done?.() } else throw new Error(j.err || t('views.package.jobFailed', { label }))
   } catch (e) {
-    toast(e instanceof Error ? e.message : `${label}失败`, 'err')
+    toast(e instanceof Error ? e.message : t('views.package.jobFailed', { label }), 'err')
   } finally { busy.value = '' }
 }
-const doAssemble = () => run('拍摄资料包', () => creationAssemble(app.current!, board.value), afterBuild)
-const doStrategy = () => run('生成战略图', () => buildStrategy(app.current!, board.value), afterBuild)
+const doAssemble = () => run('assemble', () => creationAssemble(app.current!, board.value), afterBuild)
+const doStrategy = () => run('strategy', () => buildStrategy(app.current!, board.value), afterBuild)
 
 /** 产物落盘后：先刷新项目树（战略图存在性闸读它），再重载本页数据。 */
 async function afterBuild() {
@@ -148,7 +150,7 @@ const sceneGroups = computed<SceneGroup[]>(() => {
   order.sort((a, b) => (a === '' ? 1 : 0) - (b === '' ? 1 : 0))
   return order.map((ref) => ({
     key: ref || UNLINKED, ref,
-    name: ref ? (scenesMap.value[ref] || ref || '未命名场景') : '未关联场景',
+    name: ref ? (scenesMap.value[ref] || ref || t('views.package.unnamedScene')) : t('views.package.unlinked'),
     shots: byRef.get(ref)!,
     plan: ref ? newestPlanFor(ref) : null
   }))
@@ -197,20 +199,20 @@ const selVGroup = computed(() => vGroups.value.find((v) => v.id === selUnit.valu
 
 /** V 行 plan 状态点：聚合成员场景——任一无图=灰 / 任一校验错=红 / 任一判官未过=琥珀 / 全过=绿 */
 function vDot(g: VGroup): { cls: string; textCls: string; label: string; title: string } {
-  if (!g.scenes.length) return { cls: 'bg-slate-500', textCls: 'text-slate-500', label: '未关联场景', title: '成员镜头未关联场景资产，无平面图可生成' }
+  if (!g.scenes.length) return { cls: 'bg-slate-500', textCls: 'text-slate-500', label: t('views.package.unlinked'), title: t('views.package.unlinkedTitle') }
   const parts: string[] = []
   let missing = false, bad = false, judged = false
   for (const sc of g.scenes) {
     const p = sc.plan
-    if (!p) { missing = true; parts.push(`${sc.name}：无图`); continue }
-    if (p.validate && !p.validate.ok) { bad = true; parts.push(`${sc.name}：校验错误`) }
-    else if (p.judge && !p.judge.ok) { judged = true; parts.push(`${sc.name}：判官未过`) }
-    else parts.push(`${sc.name}：通过`)
+    if (!p) { missing = true; parts.push(t('views.package.part.missing', { name: sc.name })); continue }
+    if (p.validate && !p.validate.ok) { bad = true; parts.push(t('views.package.part.bad', { name: sc.name })) }
+    else if (p.judge && !p.judge.ok) { judged = true; parts.push(t('views.package.part.judged', { name: sc.name })) }
+    else parts.push(t('views.package.part.ok', { name: sc.name }))
   }
-  if (missing) return { cls: 'bg-slate-500', textCls: 'text-slate-500', label: '缺平面图', title: parts.join('\n') }
-  if (bad) return { cls: 'bg-rose-400', textCls: 'text-rose-300', label: '校验错误', title: parts.join('\n') }
-  if (judged) return { cls: 'bg-amber-400', textCls: 'text-amber-300', label: '判官未过', title: parts.join('\n') }
-  return { cls: 'bg-emerald-400', textCls: 'text-emerald-300', label: '就绪', title: parts.join('\n') }
+  if (missing) return { cls: 'bg-slate-500', textCls: 'text-slate-500', label: t('views.package.noPlans'), title: parts.join('\n') }
+  if (bad) return { cls: 'bg-rose-400', textCls: 'text-rose-300', label: t('views.package.validateErr'), title: parts.join('\n') }
+  if (judged) return { cls: 'bg-amber-400', textCls: 'text-amber-300', label: t('views.package.judgeRejected'), title: parts.join('\n') }
+  return { cls: 'bg-emerald-400', textCls: 'text-emerald-300', label: t('views.package.ready'), title: parts.join('\n') }
 }
 
 /** 选中 V：主选该 V，详情面板落到其第一个关联场景 */
@@ -234,14 +236,14 @@ watch(selScene, () => { planExtra.value = '' })   // 换场景清空补充描述
 /** 场景行 plan 状态点：绿=校验过 / 红=校验错 / 琥珀=判官未过 / 灰=无图 */
 function planDot(g: SceneGroup): { cls: string; textCls: string; label: string; title: string } {
   const p = g.plan
-  if (!p) return { cls: 'bg-slate-500', textCls: 'text-slate-500', label: '无图', title: '该场景还没有平面图' }
+  if (!p) return { cls: 'bg-slate-500', textCls: 'text-slate-500', label: t('views.package.noPlan'), title: t('views.package.sceneNoPlan') }
   if (p.validate && !p.validate.ok) {
-    return { cls: 'bg-rose-400', textCls: 'text-rose-300', label: '校验错误', title: (p.validate.details || []).join('\n') }
+    return { cls: 'bg-rose-400', textCls: 'text-rose-300', label: t('views.package.validateErr'), title: (p.validate.details || []).join('\n') }
   }
   if (p.judge && !p.judge.ok) {
-    return { cls: 'bg-amber-400', textCls: 'text-amber-300', label: '判官未过', title: (p.judge.reasons || []).join('\n') }
+    return { cls: 'bg-amber-400', textCls: 'text-amber-300', label: t('views.package.judgeRejected'), title: (p.judge.reasons || []).join('\n') }
   }
-  return { cls: 'bg-emerald-400', textCls: 'text-emerald-300', label: '校验通过', title: 'validate 通过' + (p.judge?.ok ? ' · 判官通过' : '') }
+  return { cls: 'bg-emerald-400', textCls: 'text-emerald-300', label: t('views.package.validated'), title: t('views.package.validateOkTitle') + (p.judge?.ok ? t('views.package.judgeOkSuffix') : '') }
 }
 
 /** 详情面板判官未过原因（取自 list 直出的 judge 字段） */
@@ -253,7 +255,7 @@ const selJudge = computed(() => {
 async function loadPlans() {
   if (!app.current) { plans.value = []; return }
   try { plans.value = (await fetchPlanList(app.current)).plans || [] }
-  catch (e) { toast(e instanceof Error ? e.message : '平面图列表加载失败', 'err') }
+  catch (e) { toast(e instanceof Error ? e.message : t('views.package.plansLoadFailed'), 'err') }
 }
 async function loadZoneOptions() {
   if (!app.current) { zoneOptions.value = []; scenesMap.value = {}; return }
@@ -268,18 +270,17 @@ watch(() => app.current, () => { void loadPlans(); void loadZoneOptions() }, { i
 
 /** 主入口：为全部场景资产生成平面图（已有同场景平面图的跳过——后端 --all-scenes --skip-existing） */
 const doGenerateAllPlans = async () => {
-  if (!app.current) { toast('请先选择项目', 'err'); return }
+  if (!app.current) { toast(t('views.package.pickProject'), 'err'); return }
   const existing = sceneGroups.value.filter((g) => g.plan).length
   const redo = existing > 0 && confirm(
-    `${existing}/${sceneGroups.value.length} 个场景已有平面图。
-确定全部重新生成？（旧图有版本快照，可在版本面板恢复；取消则只生成缺图的场景）`)
-  await run('批量生成平面图', () => generatePlan({ project: app.current!, all_scenes: true, redo }), loadPlans)
+    t('views.package.confirmRedo', { done: existing, total: sceneGroups.value.length }))
+  await run('allPlans', () => generatePlan({ project: app.current!, all_scenes: true, redo }), loadPlans)
 }
 
 /** 选中场景生成/重新生成（可选补充描述；同名覆盖旧图，落盘前有版本快照） */
-const doRegenScenePlan = () => run('生成平面图', () => {
+const doRegenScenePlan = () => run('plan', () => {
   const ref = selGroup.value?.ref
-  if (!ref) throw new Error('请先选择场景')
+  if (!ref) throw new Error(t('views.package.pickScene'))
   return generatePlan({
     project: app.current!, scene: ref,
     extra_desc: planExtra.value.trim() || undefined
@@ -287,7 +288,7 @@ const doRegenScenePlan = () => run('生成平面图', () => {
 }, loadPlans)
 
 /** 打开画布：strategy_map --plan 出俯视 HTML → 新窗打开（产物路径约定 推演/战略图_平面图_<名>.html）。 */
-const openPlanCanvas = (name: string) => run('渲染画布', () => buildPlanCanvas(app.current!, name), () => {
+const openPlanCanvas = (name: string) => run('canvas', () => buildPlanCanvas(app.current!, name), () => {
   window.open(mediaUrl(`projects/${app.current}/推演/战略图_平面图_${name}.html`), '_blank')
 })
 /** 打开项目内相对路径的画布 HTML（创作包 manifest plans.canvas_html）。 */
@@ -303,32 +304,32 @@ useBoardSelection(board, boards, 'package')
     <aside class="flex w-72 shrink-0 flex-col gap-3">
       <div class="glass p-3">
         <label class="block text-xs text-slate-400">
-          分镜
-          <StyledSelect v-model="board" class="mt-1" :options="boards" :storage-key="`wb.${app.current}.package.board`" placeholder="— 选择分镜 —" />
+          {{ $t('views.package.board') }}
+          <StyledSelect v-model="board" class="mt-1" :options="boards" :storage-key="`wb.${app.current}.package.board`" :placeholder="$t('views.package.pickBoardPh')" />
         </label>
         <div class="mt-2 flex flex-wrap gap-1.5">
           <button class="btn btn-sm flex-1 justify-center" :disabled="!!busy || !board" @click="doAssemble">
-            {{ busy === '拍摄资料包' ? '生成中…' : '生成拍摄资料包' }}
+            {{ busy === 'assemble' ? $t('common.generating') : $t('views.package.assemble') }}
           </button>
           <button class="btn btn-ghost btn-sm flex-1 justify-center" :disabled="!!busy || !board" @click="doStrategy">
-            {{ busy === '生成战略图' ? '生成中…' : '刷新战略图' }}
+            {{ busy === 'strategy' ? $t('common.generating') : $t('views.package.refreshStrategy') }}
           </button>
           <RouterLink class="btn btn-ghost btn-sm flex-1 justify-center" to="/white"
-            title="白模渲染与预演帧导出在辅助·白模专栏（产物同步本页素材）">辅助·白模 →</RouterLink>
+            :title="$t('views.package.whiteTitle')">{{ $t('views.package.goWhite') }}</RouterLink>
           <RouterLink class="btn btn-ghost btn-sm flex-1 justify-center" to="/white3d"
-            title="3D 白模构建/渲染在辅助·Blender 专栏（独立旁路，产物不参与⑦参考注入）">辅助·Blender →</RouterLink>
+            :title="$t('views.package.blenderTitle')">{{ $t('views.package.goBlender') }}</RouterLink>
         </div>
       </div>
       <div class="glass min-h-0 flex-1 overflow-y-auto p-2">
         <button class="btn btn-sm mb-2 w-full justify-center" :disabled="!!busy || !app.current || !zoneOptions.length"
-          title="为 素材/场景.json 里还没有平面图的每个场景各生成一张（已有平面图的跳过；资产提炼完成时也会自动补）"
+          :title="$t('views.package.allPlansTitle')"
           @click="doGenerateAllPlans">
-          {{ busy === '批量生成平面图' ? '批量生成中…' : '为全部场景生成平面图' }}
+          {{ busy === 'allPlans' ? $t('views.package.allPlansBusy') : $t('views.package.allPlans') }}
         </button>
-        <p v-if="!zoneOptions.length" class="mb-2 text-center text-2xs text-slate-500">无场景资产——先到 ②素材生成 页提炼</p>
-        <p v-if="!sceneGroups.length" class="py-10 text-center text-sm text-slate-500">选择分镜</p>
+        <p v-if="!zoneOptions.length" class="mb-2 text-center text-2xs text-slate-500">{{ $t('views.package.noSceneAssets') }}</p>
+        <p v-if="!sceneGroups.length" class="py-10 text-center text-sm text-slate-500">{{ $t('views.package.pickBoardHint') }}</p>
         <p v-if="sceneGroups.length && !hasUnits" class="mb-2 text-center text-2xs text-slate-500">
-          本分镜无 V 分组（老分镜）——按场景展示；到 ⑦创作生成 建立 V 后按 V 组织
+          {{ $t('views.package.noUnits') }}
         </p>
         <!-- V 列表（与⑦创作生成同源同批）：状态点 + V 名 + 成员场景 chips + S 徽标 -->
         <template v-if="hasUnits">
@@ -343,13 +344,13 @@ useBoardSelection(board, boards, 'package')
               <span class="ml-auto shrink-0 text-2xs text-slate-500">{{ g.duration }}s</span>
               <span class="shrink-0 text-2xs" :class="vDot(g).textCls">{{ vDot(g).label }}</span>
             </div>
-            <div class="mt-1 flex flex-wrap gap-1" title="成员场景（点击切换右侧详情）">
+            <div class="mt-1 flex flex-wrap gap-1" :title="$t('views.package.memberScenes')">
               <button v-for="sc in g.scenes" :key="sc.ref"
                 class="rounded px-1 text-2xs transition"
                 :class="selScene === sc.ref ? 'bg-violet-400/25 font-bold text-violet-200' : 'bg-violet-400/10 text-violet-300 hover:bg-violet-400/20'"
                 @click.stop="selScene = sc.ref; tab = 'aiplan'">{{ sc.name }}</button>
             </div>
-            <div class="mt-1 flex flex-wrap gap-1" title="成员镜头（点击跳走位战略图）">
+            <div class="mt-1 flex flex-wrap gap-1" :title="$t('views.package.memberShots')">
               <button v-for="e in g.shots" :key="e.s.id"
                 class="rounded bg-sky-400/15 px-1 text-2xs font-black text-sky-300 hover:bg-sky-400/30"
                 @click.stop="gotoShot(e.i)">{{ e.s.id }}</button>
@@ -375,12 +376,12 @@ useBoardSelection(board, boards, 'package')
         </template>
         <!-- 其他平面图：项目里有但不属于本分镜场景的 -->
         <div v-if="otherPlans.length" class="mt-2 border-t border-line pt-2">
-          <div class="px-1 pb-1 text-2xs text-slate-500">其他平面图（不在本分镜场景）</div>
+          <div class="px-1 pb-1 text-2xs text-slate-500">{{ $t('views.package.otherPlans') }}</div>
           <div v-for="p in otherPlans" :key="p.name" class="flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-white/5">
             <span class="truncate text-xs text-slate-300">{{ planLabel(p) }}</span>
             <span class="flex-1"></span>
             <button class="text-2xs text-sky-300 hover:underline" :disabled="!!busy" @click="openPlanCanvas(p.name)">
-              {{ busy === '渲染画布' ? '渲染中…' : '打开画布' }}
+              {{ busy === 'canvas' ? $t('views.package.rendering') : $t('views.package.openCanvas') }}
             </button>
           </div>
         </div>
@@ -401,20 +402,19 @@ useBoardSelection(board, boards, 'package')
       <div v-if="tab === 'strategy'" class="glass min-h-0 flex-1 overflow-hidden p-1">
         <!-- 底图来源不只在产物里标一次：这页切 tab、iframe 被滚掉时就没人看见了 -->
         <div v-if="planFallback" class="mb-1 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-2xs text-amber-200">
-          底图「{{ planFallback.name || '未命名' }}」与本分镜 scene_ref {{ planFallback.score || 0 }}/{{ planFallback.total || 0 }} 匹配——
-          用的是回退的最新一张，<b>空间一致性未经校验</b>；要按场景出图请先到 ② 关联场景资产、再到 ⑥ 生成对应平面图
+          {{ $t('views.package.fallback', { name: planFallback.name || $t('views.package.unnamed'), score: planFallback.score || 0, total: planFallback.total || 0 }) }}<b>{{ $t('views.package.fallbackBold') }}</b>{{ $t('views.package.fallbackTail') }}
         </div>
         <iframe v-if="strategyUrl" id="strategyFrame" :src="strategyUrl" class="h-full w-full rounded-lg border-0 bg-white"
-          title="战略图"></iframe>
+          :title="$t('views.package.strategyFrame')"></iframe>
         <div v-else class="grid h-full place-items-center p-6 text-center">
-          <div v-if="!board" class="text-xs text-slate-500">选择分镜后展示战略图</div>
+          <div v-if="!board" class="text-xs text-slate-500">{{ $t('views.package.strategyHint') }}</div>
           <div v-else>
-            <div class="text-sm font-bold text-amber-300">尚无走位战略图</div>
-            <div class="mt-1 text-2xs text-slate-500">推演/{{ strategyFile }} 还没有生成</div>
+            <div class="text-sm font-bold text-amber-300">{{ $t('views.package.noStrategy') }}</div>
+            <div class="mt-1 text-2xs text-slate-500">{{ $t('views.package.notGenerated', { file: '推演/' + strategyFile }) }}</div>
             <button class="btn btn-sm mt-3" :disabled="!!busy" @click="doStrategy">
-              {{ busy === '生成战略图' ? '生成中…' : '生成走位战略图' }}
+              {{ busy === 'strategy' ? $t('common.generating') : $t('views.package.genStrategy') }}
             </button>
-            <div class="mt-2 text-2xs text-slate-500">「生成拍摄资料包」会另出一版以场景平面图为底图的战略图</div>
+            <div class="mt-2 text-2xs text-slate-500">{{ $t('views.package.assembleNote') }}</div>
           </div>
         </div>
       </div>
@@ -422,14 +422,14 @@ useBoardSelection(board, boards, 'package')
       <!-- AI 平面图：选中场景的详情面板 -->
       <div v-else-if="tab === 'aiplan'" class="glass min-h-0 flex-1 overflow-y-auto p-3">
         <div v-if="!selGroup" class="grid h-full place-items-center text-sm text-slate-500">
-          {{ board ? '左侧选择场景' : '先选择分镜，再从左侧选择场景' }}
+          {{ board ? $t('views.package.pickSceneLeft') : $t('views.package.pickBoardThenScene') }}
         </div>
         <div v-else class="space-y-3">
           <!-- V 上下文（V 模式下）：当前 V + 成员场景切换（详情面板仍按场景展示 plan） -->
           <div v-if="selVGroup" class="flex flex-wrap items-center gap-2 rounded-lg bg-white/5 px-3 py-2">
             <span class="text-xs font-black text-sky-300">{{ selVGroup.label }}</span>
             <span class="truncate text-xs text-slate-300" :title="selVGroup.title">{{ selVGroup.title }}</span>
-            <span class="text-2xs text-slate-500">{{ selVGroup.duration }}s · {{ selVGroup.shots.length }} 镜</span>
+            <span class="text-2xs text-slate-500">{{ selVGroup.duration }}s · {{ $t('common.shots', { n: selVGroup.shots.length }) }}</span>
             <span class="flex-1"></span>
             <button v-for="sc in selVGroup.scenes" :key="sc.ref"
               class="rounded px-1.5 text-2xs transition"
@@ -448,58 +448,57 @@ useBoardSelection(board, boards, 'package')
                 <span class="rounded px-1.5 text-2xs"
                   :class="selGroup.plan.validate?.ok ? 'bg-emerald-400/15 text-emerald-300' : 'bg-rose-400/15 text-rose-300'"
                   :title="(selGroup.plan.validate?.details || []).join('\n')">
-                  {{ selGroup.plan.validate?.ok ? '校验通过' : `校验 ${selGroup.plan.validate?.errors ?? '?'} 错误` }}{{ selGroup.plan.validate?.warnings ? ` · ${selGroup.plan.validate.warnings} 警告` : '' }}
+                  {{ selGroup.plan.validate?.ok ? $t('views.package.validated') : $t('views.package.validateErrors', { n: selGroup.plan.validate?.errors ?? '?' }) }}{{ selGroup.plan.validate?.warnings ? $t('views.package.warnings', { n: selGroup.plan.validate.warnings }) : '' }}
                 </span>
                 <span v-if="selGroup.plan.judge && !selGroup.plan.judge.ok"
                   class="rounded bg-amber-400/15 px-1.5 text-2xs text-amber-300"
-                  :title="(selGroup.plan.judge.reasons || []).join('\n')">判官未通过</span>
+                  :title="(selGroup.plan.judge.reasons || []).join('\n')">{{ $t('views.package.judgeFailed') }}</span>
                 <span class="text-2xs text-slate-500">
-                  陈设{{ selGroup.plan.counts?.props ?? 0 }} · 演员{{ selGroup.plan.counts?.actors ?? 0 }} · 路径{{ selGroup.plan.counts?.paths ?? 0 }}
-                  · 机位{{ selGroup.plan.counts?.cameras ?? 0 }} · 区域{{ selGroup.plan.counts?.zones ?? 0 }}
+                  {{ $t('views.package.counts', { props: selGroup.plan.counts?.props ?? 0, actors: selGroup.plan.counts?.actors ?? 0, paths: selGroup.plan.counts?.paths ?? 0, cameras: selGroup.plan.counts?.cameras ?? 0, zones: selGroup.plan.counts?.zones ?? 0 }) }}
                 </span>
                 <span class="flex-1"></span>
                 <span class="text-2xs text-slate-500">{{ new Date(selGroup.plan.mtime * 1000).toLocaleString() }}</span>
               </div>
               <div class="mt-2 flex flex-wrap items-center gap-2">
                 <button class="btn btn-ghost btn-sm" :disabled="!!busy" @click="openPlanCanvas(selGroup.plan.name)">
-                  {{ busy === '渲染画布' ? '渲染中…' : '打开画布' }}
+                  {{ busy === 'canvas' ? $t('views.package.rendering') : $t('views.package.openCanvas') }}
                 </button>
-                <input v-model="planExtra" class="input w-64 text-xs" placeholder="补充描述（可省）：陈设增减、门窗调整……" />
+                <input v-model="planExtra" class="input w-64 text-xs" :placeholder="$t('views.package.extraPh')" />
                 <button class="btn btn-ghost btn-sm" :disabled="!!busy"
-                  title="同名覆盖该场景旧平面图（落盘前有版本快照）" @click="doRegenScenePlan">
-                  {{ busy === '生成平面图' ? '生成中…' : '重新生成该场景' }}
+                  :title="$t('views.package.regenTitle')" @click="doRegenScenePlan">
+                  {{ busy === 'plan' ? $t('common.generating') : $t('views.package.regenScene') }}
                 </button>
               </div>
               <div v-if="selJudge" class="mt-2 rounded-lg border border-amber-400/40 bg-amber-400/10 p-2 text-xs text-amber-200">
-                <div>判官 3 轮仍未通过，已落盘最后一版合法产物，可人工修正：</div>
+                <div>{{ $t('views.package.judgeGaveUp') }}</div>
                 <ul class="mt-1 list-disc pl-5"><li v-for="(r, i) in selJudge.reasons" :key="i">{{ r }}</li></ul>
               </div>
             </div>
             <!-- 无 plan：生成入口 -->
             <div v-else class="rounded-lg bg-white/5 p-3">
-              <div class="text-xs text-slate-400">该场景还没有平面图</div>
+              <div class="text-xs text-slate-400">{{ $t('views.package.sceneNoPlan') }}</div>
               <div class="mt-2 flex flex-wrap items-center gap-2">
-                <input v-model="planExtra" class="input w-64 text-xs" placeholder="补充描述（可省）：陈设增减、门窗调整……" />
+                <input v-model="planExtra" class="input w-64 text-xs" :placeholder="$t('views.package.extraPh')" />
                 <button class="btn btn-sm" :disabled="!!busy" @click="doRegenScenePlan">
-                  {{ busy === '生成平面图' ? '生成中…' : '生成该场景平面图' }}
+                  {{ busy === 'plan' ? $t('common.generating') : $t('views.package.genScene') }}
                 </button>
               </div>
             </div>
           </template>
           <!-- 未关联组：无场景资产可操作 -->
           <div v-else class="rounded-lg bg-white/5 p-3 text-xs text-slate-400">
-            这些镜头未关联场景资产（scene_ref 为空）——无法按场景生成平面图；如需场景底图，请在分镜中为镜头补 scene_ref。
+            {{ $t('views.package.unlinkedNote') }}
           </div>
 
           <!-- 本场景镜头（点击跳走位战略图对应镜） -->
           <div>
-            <div class="mb-1 text-2xs text-slate-500">本场景镜头（点击跳走位战略图）</div>
+            <div class="mb-1 text-2xs text-slate-500">{{ $t('views.package.sceneShots') }}</div>
             <div class="flex flex-wrap gap-1.5">
               <button v-for="e in selGroup.shots" :key="e.s.id"
                 class="rounded-lg bg-white/5 p-2 text-left transition hover:bg-white/10" @click="gotoShot(e.i)">
                 <div class="flex items-center gap-1.5">
                   <span class="rounded bg-sky-400/15 px-1.5 text-xs-plus font-black text-sky-300">{{ e.s.id }}</span>
-                  <span class="text-2xs text-slate-500">{{ e.s.dur }}s · {{ (e.s.lines || []).length }}台词</span>
+                  <span class="text-2xs text-slate-500">{{ e.s.dur }}s · {{ $t('views.package.linesN', { n: (e.s.lines || []).length }) }}</span>
                 </div>
                 <div class="mt-0.5 line-clamp-1 max-w-56 text-2xs text-slate-400">{{ e.s.action || e.s.prompt }}</div>
               </button>
@@ -511,15 +510,15 @@ useBoardSelection(board, boards, 'package')
 
       <!-- 逐镜包 -->
       <div v-else class="glass min-h-0 flex-1 overflow-y-auto p-3">
-        <div v-if="!pkg" class="grid h-full place-items-center text-xs text-slate-500">尚未生成——点左上「生成拍摄资料包」</div>
+        <div v-if="!pkg" class="grid h-full place-items-center text-xs text-slate-500">{{ $t('views.package.noPkg') }}</div>
         <div v-else class="space-y-2">
           <div v-for="s in pkg.shots" :key="s.id" class="rounded-lg bg-white/5 p-2.5">
             <div class="flex flex-wrap items-center gap-2">
               <span class="rounded bg-sky-400/15 px-1.5 font-black text-sky-300">{{ s.id }}</span>
               <span class="text-xs-plus text-slate-400">{{ s.move }} · {{ s.dur }}s</span>
               <span class="ml-auto flex gap-1">
-                <span class="rounded px-1 text-2xs" :class="s.diagram ? 'bg-emerald-400/15 text-emerald-300' : 'bg-white/5 text-slate-500'">平面图</span>
-                <span class="rounded px-1 text-2xs" :class="s.white_ref ? 'bg-emerald-400/15 text-emerald-300' : 'bg-white/5 text-slate-500'">白模参考</span>
+                <span class="rounded px-1 text-2xs" :class="s.diagram ? 'bg-emerald-400/15 text-emerald-300' : 'bg-white/5 text-slate-500'">{{ $t('views.package.badgePlan') }}</span>
+                <span class="rounded px-1 text-2xs" :class="s.white_ref ? 'bg-emerald-400/15 text-emerald-300' : 'bg-white/5 text-slate-500'">{{ $t('views.package.badgeWhite') }}</span>
               </span>
             </div>
             <p v-if="s.prompt" class="mt-1 text-xs-plus leading-relaxed text-slate-300">{{ s.prompt }}</p>
@@ -527,18 +526,18 @@ useBoardSelection(board, boards, 'package')
               {{ (s.script || []).map((l) => `【${l.speaker}】${l.text}`).join(' ') }}
             </p>
           </div>
-          <p v-if="(pkg.materials || []).length" class="pt-1 text-2xs text-slate-500">素材引用：{{ (pkg.materials || []).join('、') }}</p>
+          <p v-if="(pkg.materials || []).length" class="pt-1 text-2xs text-slate-500">{{ $t('views.package.materials', { list: (pkg.materials || []).join($t('common.listSep')) }) }}</p>
           <!-- AI 平面图（plan v1 挂接）：场景名 + 校验徽标 + 打开画布（有 canvas_html 才可点） -->
           <div v-if="(pkg.plans || []).length" class="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1 text-2xs text-slate-500">
-            <span>AI 平面图：</span>
+            <span>{{ $t('views.package.aiPlans') }}</span>
             <span v-for="pl in pkg.plans" :key="pl.name" class="flex items-center gap-1">
               <span class="text-slate-300">{{ planLabel(pl) }}</span>
-              <span class="text-slate-500">（陈设{{ pl.counts?.props ?? 0 }}/演员{{ pl.counts?.actors ?? 0 }}/路径{{ pl.counts?.paths ?? 0 }}）</span>
+              <span class="text-slate-500">{{ $t('views.package.countsShort', { props: pl.counts?.props ?? 0, actors: pl.counts?.actors ?? 0, paths: pl.counts?.paths ?? 0 }) }}</span>
               <span class="rounded px-1"
                 :class="pl.validate_ok ? 'bg-emerald-400/15 text-emerald-300' : pl.validate_ok === false ? 'bg-rose-400/15 text-rose-300' : 'bg-white/5 text-slate-500'">
-                {{ pl.validate_ok === null || pl.validate_ok === undefined ? '未校验' : pl.validate_ok ? '校验通过' : '校验失败' }}
+                {{ pl.validate_ok === null || pl.validate_ok === undefined ? $t('views.package.notValidated') : pl.validate_ok ? $t('views.package.validated') : $t('views.package.validateFailed') }}
               </span>
-              <button v-if="pl.canvas_html" class="text-sky-300 hover:underline" @click="openCanvasHtml(pl.canvas_html!)">打开画布</button>
+              <button v-if="pl.canvas_html" class="text-sky-300 hover:underline" @click="openCanvasHtml(pl.canvas_html!)">{{ $t('views.package.openCanvas') }}</button>
             </span>
           </div>
         </div>
