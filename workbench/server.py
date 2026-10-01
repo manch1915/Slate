@@ -136,6 +136,7 @@ LLMCFG=os.path.join(ROOT,"llm_config.json")
 PROV=os.path.join(ROOT,"providers.json")   # 阶段二：厂商+能力槽位配置（v2 vendors 结构）
 PROV_BAK2=PROV+".bak2"                      # v1->v2 迁移前备份
 from provider_catalog import KINDS, DEFAULT_VENDORS, normalize_vendors
+from i18n_text import tr, set_lang, reset_lang, current_lang, parse_accept_language, subprocess_env
 
 # v1 平铺供应商 id -> v2 厂商 id 映射（迁移聚合用）
 LEGACY_ID_MAP={"glm-vision":"glm","glm-text":"glm","qwen":"qwen","qwen-vl":"qwen","qwen-image":"qwen",
@@ -628,7 +629,7 @@ class H(BaseHTTPRequestHandler):
             if any(j.get("step") == "environment_install" for j in active) or (step == "environment_install" and active):
                 raise ValueError("环境安装与生成任务不能同时运行，请等待当前任务结束")
             self.JOBSEQ[0]+=1; jid=self.JOBSEQ[0]
-            self.JOBS[jid]={"id":jid,"step":step,"status":"running","out":"","err":"","cmd":[os.path.basename(c) for c in cmd],
+            self.JOBS[jid]={"id":jid,"step":step,"status":"running","out":"","err":"","lang":current_lang(),"cmd":[os.path.basename(c) for c in cmd],
                             "fullcmd":list(cmd),"attempts":1,"attempt_id":f"{jid}-a1",
                             "write_revoked":False,"process_alive":False,
                             "started_at":time.time(),"updated_at":time.time()}
@@ -640,12 +641,13 @@ class H(BaseHTTPRequestHandler):
         """任务执行线程（spawn 与 429 看门狗重试共用）。流式读输出：每行实时并入 JOBS[jid]['out']
         （尾部 8000 字符），每 20 行或 2 秒节流落盘；stderr 已并入 stdout。timeout 14400s 由看门狗 kill
         （AI 解构长片 69 镜约 1h+，3600s 会误杀；超时 err 标明原因）。"""
+        with self.JLOCK: job_lang=(self.JOBS.get(jid) or {}).get("lang") or current_lang()   # поток не наследует язык запроса
         def work():
             ok=False; err=""
             timed_out=[False]
             p=None
             try:
-                _env=dict(os.environ); _env["PYTHONUNBUFFERED"]="1"  # 子进程不缓冲 stdout，日志实时流式可见
+                _env=subprocess_env(lang=job_lang); _env["PYTHONUNBUFFERED"]="1"  # 子进程不缓冲 stdout，日志实时流式可见
                 p=subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
                                    text=True,encoding="utf-8",errors="replace",env=_env)
                 with self.JLOCK:
@@ -742,6 +744,14 @@ class H(BaseHTTPRequestHandler):
             self.close_connection = True
 
     def _dispatch_request(self, method):
+        # Язык сообщений запроса: фронтенд шлёт Accept-Language с языком интерфейса (по умолчанию zh).
+        token = set_lang(parse_accept_language(self.headers.get('Accept-Language')))
+        try:
+            return self._dispatch_request_in_lang(method)
+        finally:
+            reset_lang(token)
+
+    def _dispatch_request_in_lang(self, method):
         try:
             url = urllib.parse.urlparse(self.path)
             query = MappingProxyType({k: tuple(v) for k, v in urllib.parse.parse_qs(url.query).items()})
@@ -2899,7 +2909,7 @@ class H(BaseHTTPRequestHandler):
             return self._send(400,"application/json",json.dumps({"ok":False,"err":"项目还没有台词脚本.json（先在台词页合并）"},ensure_ascii=False).encode())
         if not tools_mod("analyze_film.py"):
             return self._send(500,"application/json",json.dumps({"ok":False,"err":"analyze_film.py 缺失"},ensure_ascii=False).encode())
-        _env=dict(os.environ); _env["PYTHONIOENCODING"]="utf-8"
+        _env=subprocess_env(); _env["PYTHONIOENCODING"]="utf-8"
         jid=self.spawn_job("analysis",[sys.executable,os.path.join(TOOLS,"analyze_film.py"),"--merge-lines",ad])
         return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":True,"id":jid,"job":True},ensure_ascii=False).encode())
 
@@ -3080,7 +3090,7 @@ class H(BaseHTTPRequestHandler):
         if nm: cmd+=["--analysis",nm]
         md=body.get("mode")   # E09 双模式透传：schematic(示意预演,缺省)/faithful(忠实重建)；非法值不带参
         if md in ("schematic","faithful"): cmd+=["--mode",md]
-        _env=dict(os.environ); _env["PYTHONIOENCODING"]="utf-8"
+        _env=subprocess_env(); _env["PYTHONIOENCODING"]="utf-8"
         jid=self.spawn_job("analysis",cmd)
         return self._send(200,"application/json; charset=utf-8",json.dumps({"ok":True,"id":jid,"job":True},ensure_ascii=False).encode())
 
@@ -4296,7 +4306,7 @@ class H(BaseHTTPRequestHandler):
             if not gen:
                 return self._send(500,"application/json",json.dumps({"ok":False,"err":"blender_previs.py 工具缺失"},ensure_ascii=False).encode())
             try:
-                _env=dict(os.environ); _env["PYTHONIOENCODING"]="utf-8"
+                _env=subprocess_env(); _env["PYTHONIOENCODING"]="utf-8"
                 r=subprocess.run([sys.executable,gen,jsp],capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=120,env=_env)
             except Exception as e:
                 return self._send(500,"application/json",json.dumps({"ok":False,"err":"生成器异常:"+scrub_err(e)},ensure_ascii=False).encode())

@@ -47,6 +47,11 @@ export function currentLocale(): Locale {
   return i18n.global.locale.value as Locale
 }
 
+/** Значение Accept-Language для запросов к бэкенду: по нему сервер выбирает язык сообщений. */
+export function backendLanguage(): string {
+  return HTML_LANG[currentLocale()]
+}
+
 export function setLocale(code: Locale) {
   i18n.global.locale.value = code
   localStorage.setItem(STORAGE_KEY, code)
