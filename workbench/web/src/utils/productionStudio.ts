@@ -1,5 +1,6 @@
 import { getJSON, postJSON, type CreateItem } from '../api'
-import { clearPendingRequest, durableRequest, pendingRequest, type RequestBody } from './durableRequest'
+import { clearPendingRequest, durableRequest, DurableRequestError, pendingRequest, type RequestBody } from './durableRequest'
+import { t } from '../i18n'
 import type { VideoCapability, VideoSettingsValue } from './videoSettings'
 
 export interface GenerationOptions {ref_mode?: string; tail_mode?: string; tail_item?: string; vision_vendor?: string; include_voices?: boolean; video_options?: VideoSettingsValue; first_shot_id?:string; last_shot_id?:string; image_urls?:Record<string,string>; audio_urls?:string; video_urls?:string}
@@ -50,12 +51,20 @@ export async function reconcilePending(project: string) {
     })
   if (result) clearPendingRequest(project)
 }
+/** Ошибки durableRequest приходят с кодом — показываем их на текущем языке. */
+function localizeDurable(e: unknown): unknown {
+  return e instanceof DurableRequestError ? new Error(t('views.production.durable.' + e.code)) : e
+}
 export const submitStudioJob = async (body: RequestBody, recover = false) => {
-  await reconcilePending(String(body.project || ''))
-  return navigator.locks.request('slate-production:' + body.project, () => durableRequest(body, b => studioPost('job', b), recover))
+  try {
+    await reconcilePending(String(body.project || ''))
+    return await navigator.locks.request('slate-production:' + body.project, () => durableRequest(body, b => studioPost('job', b), recover))
+  } catch (e) { throw localizeDurable(e) }
 }
 // 局部修补与生成走同一持久化通道（稳定 nonce + 自动对账），只是落在独立路由上。
 export const submitRedoJob = async (body: RequestBody, recover = false) => {
-  await reconcilePending(String(body.project || ''))
-  return navigator.locks.request('slate-production:' + body.project, () => durableRequest(body, b => postJSON<{ok: boolean; id?: number; item_id?: string; reused?: boolean}>('/api/production/redo_segment', b), recover))
+  try {
+    await reconcilePending(String(body.project || ''))
+    return await navigator.locks.request('slate-production:' + body.project, () => durableRequest(body, b => postJSON<{ok: boolean; id?: number; item_id?: string; reused?: boolean}>('/api/production/redo_segment', b), recover))
+  } catch (e) { throw localizeDurable(e) }
 }

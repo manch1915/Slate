@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t, te, vocab, type VocabKind } from '../i18n'
 // -*- coding: utf-8 -*-
 /** ① 拉片解构：生成 / 版本时间线 / 解构表格编辑 / 导出（md + 分镜脚本 xlsx）/ 重新生成。 */
 import { ref, computed, watch, nextTick } from 'vue'
@@ -67,16 +68,16 @@ async function precipitate() {
       try {
         const after = await fetchKnowledge()
         const delta = (after.skills?.length || 0) - (before.skills?.length || 0)
-        toast(`已沉淀 ${after.skills?.length || 0} 张经验卡（新增 ${Math.max(0, delta)}）；可在 Skill 中心「经验卡片」查看/编辑/转为 Skill`, 'ok', 6000)
+        toast(t('views.lapian.precipitated', { n: after.skills?.length || 0, added: Math.max(0, delta) }), 'ok', 6000)
       } catch (e) {
         // 二次统计失败不能当成功报：否则卡片其实没落库，页面却提示"已沉淀"
-        toast('沉淀任务已提交，但读取卡片统计失败：' + (e instanceof Error ? e.message : '未知错误'), 'err', 6000)
+        toast(t('views.lapian.statsFailed', { err: e instanceof Error ? e.message : t('views.lapian.unknownError') }), 'err', 6000)
       } finally {
         kbBusy.value = false
       }
     }, 2500)
   } catch (e) {
-    toast(e instanceof Error ? e.message : '沉淀失败', 'err')
+    toast(e instanceof Error ? e.message : t('views.lapian.precipitateFailed'), 'err')
     kbBusy.value = false
   }
 }
@@ -86,13 +87,13 @@ async function genWhiteBoard() {
   genWhiteBusy.value = true
   try {
     const r = await whiteFromAnalysis({ project: app.current, analysis: currentName.value })
-    const job = await trackJob(r.id, '生成白模分镜')
-    if (!job.success) throw new Error(job.err || '白模分镜生成失败')
+    const job = await trackJob(r.id, t('views.lapian.job.white'))
+    if (!job.success) throw new Error(job.err || t('views.lapian.whiteFailed'))
     await loadBasics()
     if (viewTab.value === 'json') loadWbJson()   // 正在看 JSON 页签：刷新内容
-    toast('白模分镜已生成', 'ok', 4000)
+    toast(t('views.lapian.whiteDone'), 'ok', 4000)
   } catch (e) {
-    toast(e instanceof Error ? e.message : '生成失败', 'err')
+    toast(e instanceof Error ? e.message : t('views.lapian.genFailed'), 'err')
   } finally {
     genWhiteBusy.value = false
   }
@@ -106,15 +107,10 @@ function goWhite() {
 /* ---------- 版本产物在线看（二级页签）：白模分镜 JSON / 分镜脚本 xlsx / analysis.md ---------- */
 type ViewTab = 'edit' | 'json' | 'xlsx' | 'md'
 const viewTab = ref<ViewTab>('edit')
-const VIEW_TABS: { key: ViewTab; label: string }[] = [
-  { key: 'edit', label: '镜头编辑' },
-  { key: 'json', label: '白模分镜 JSON' },
-  { key: 'xlsx', label: '分镜脚本 xlsx' },
-  { key: 'md', label: 'analysis.md' }
-]
-const BOARD_CAM_LABELS: Record<string, string> = {
-  wide: '全景', two: '双人', cu: '特写', near: '近景背影', ots: '越肩', off: '自定义'
-}
+const VIEW_TABS: { key: ViewTab }[] = [{ key: 'edit' }, { key: 'json' }, { key: 'xlsx' }, { key: 'md' }]
+const camLabel = (cam?: string) => (cam && te('views.lapian.cam.' + cam) ? t('views.lapian.cam.' + cam) : cam || '—')
+/** Подписи для StyledSelect с контролируемыми словарями: значения остаются китайскими (данные), показываем перевод. */
+const vocabLabels = (kind: VocabKind, list: readonly string[]) => Object.fromEntries(list.map((v) => [v, vocab(kind, v)]))
 
 const wbJson = ref<WhiteBoard | null>(null)
 const wbJsonLoading = ref(false)
@@ -127,7 +123,7 @@ async function loadWbJson() {
   try {
     wbJson.value = await fetchWhiteBoard(app.current, whiteBoard.value)
   } catch (e) {
-    toast(e instanceof Error ? e.message : '分镜 JSON 读取失败', 'err')
+    toast(e instanceof Error ? e.message : t('views.lapian.jsonReadFailed'), 'err')
   } finally {
     wbJsonLoading.value = false
   }
@@ -162,14 +158,14 @@ async function loadXlsxView() {
     } catch (e) {
       if (e instanceof Error && 'status' in e && (e as { status: number }).status === 404) {
         const g = await exportAnalysisXlsx(app.current, currentName.value) as any   // 未导出过：先生成（job）再读
-        if (g?.job && g.id) await trackJob(g.id, '导出 xlsx')
+        if (g?.job && g.id) await trackJob(g.id, t('views.lapian.job.xlsx'))
         xlsxSheets.value = (await fetchAnalysisXlsxView(app.current, currentName.value)).sheets
       } else {
         throw e
       }
     }
   } catch (e) {
-    toast(e instanceof Error ? e.message : 'xlsx 读取失败', 'err')
+    toast(e instanceof Error ? e.message : t('views.lapian.xlsxReadFailed'), 'err')
   } finally {
     xlsxLoading.value = false
   }
@@ -187,7 +183,7 @@ async function loadMdText() {
     mdText.value = await r.text()
   } catch {
     mdText.value = ''
-    toast('analysis.md 不存在（重新生成解构可产出）', 'err')
+    toast(t('views.lapian.mdMissing'), 'err')
   } finally {
     mdLoading.value = false
   }
@@ -250,7 +246,7 @@ async function loadVersions() {
       versions.value = []
       notFound.value = true
     } else {
-      toast('版本列表加载失败（后端可能未就绪）', 'err')
+      toast(t('views.lapian.versionsFailed'), 'err')
     }
   }
 }
@@ -269,7 +265,7 @@ async function loadVersion(name: string) {
     currentName.value = name
     dirty.value = false
   } catch {
-    if (seq === loadSeq && project === app.current) toast('加载解构失败', 'err')
+    if (seq === loadSeq && project === app.current) toast(t('views.lapian.loadFailed'), 'err')
   } finally {
     if (seq === loadSeq) loading.value = false
   }
@@ -280,7 +276,7 @@ watch(currentName, (n) => (newName.value = n))
 async function runRegen() {
   const mv = materialList.value.find((v) => v.rel === video.value)
   if (!app.current || !mv) {
-    toast('请先选择项目素材视频', 'err')
+    toast(t('views.lapian.pickVideo'), 'err')
     return
   }
   running.value = true
@@ -296,10 +292,10 @@ async function runRegen() {
       thresh: Number(thresh.value) || 13,
       workers: Math.max(1, Math.min(Number(workers.value) || 4, 16))
     })
-    toast(`解构任务 #${r.id} 已启动`, 'ok')
-    const j = await trackJob(r.id, `拉片解构 ${name || ''}`.trim())
+    toast(t('common.jobStarted', { what: t('views.lapian.what.analysis'), id: r.id }), 'ok')
+    const j = await trackJob(r.id, t('views.lapian.job.analysis', { name: name || '' }).trim())
     if (j.success) {
-      toast('解构完成', 'ok')
+      toast(t('views.lapian.analysisDone'), 'ok')
       await loadVersions()
       // 自动选中新版本并加载（后端返回 name 优先，否则取创建时间最新）
       const latest =
@@ -307,10 +303,10 @@ async function runRegen() {
         [...versions.value].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))[0]
       if (latest) await loadVersion(latest.name)
     } else {
-      toast('解构失败，详情见任务抽屉', 'err')
+      toast(t('views.lapian.analysisFailed'), 'err')
     }
   } catch (e) {
-    toast(e instanceof Error ? e.message : '启动失败', 'err')
+    toast(e instanceof Error ? e.message : t('common.startFailed'), 'err')
   } finally {
     running.value = false
   }
@@ -322,17 +318,17 @@ async function save() {
     await saveAnalysis(app.current, currentName.value, analysisPayload())
     dirty.value = false
     mdText.value = ''   // analysis.md 已重生成，重进页签时刷新
-    toast('已保存修改', 'ok')
+    toast(t('views.lapian.saved'), 'ok')
   } catch (e) {
-    toast(e instanceof Error ? e.message : '保存失败', 'err')
+    toast(e instanceof Error ? e.message : t('common.saveFailed'), 'err')
   }
 }
 
 async function removeVersion(name: string) {
-  if (!app.current || !confirm(`确定删除解构版本「${name}」？`)) return
+  if (!app.current || !confirm(t('views.lapian.confirmDelete', { name }))) return
   try {
     await deleteAnalysis(app.current, name)
-    toast('已删除', 'ok')
+    toast(t('views.lapian.deleted'), 'ok')
     if (currentName.value === name) {
       analysis.value = null
       currentName.value = ''
@@ -340,7 +336,7 @@ async function removeVersion(name: string) {
     }
     await loadVersions()
   } catch {
-    toast('删除失败', 'err')
+    toast(t('common.deleteFailed'), 'err')
   }
 }
 
@@ -351,14 +347,14 @@ async function exportMd() {
     const r = await fetch(mediaUrl(rel))
     if (!r.ok) throw new Error(`HTTP ${r.status}`)
   } catch {
-    toast('analysis.md 不存在（重新生成解构可产出）', 'err')
+    toast(t('views.lapian.mdMissing'), 'err')
     return
   }
   const a = document.createElement('a')
   a.href = mediaUrl(rel)
   a.download = `${currentName.value}_analysis.md`
   a.click()
-  toast('开始下载 analysis.md', 'ok')
+  toast(t('views.lapian.mdDownload'), 'ok')
 }
 
 /** 导出分镜脚本 xlsx（/api/analysis/export 同步生成 → mediaUrl 下载）。 */
@@ -368,16 +364,16 @@ async function exportXlsx() {
   exportingXlsx.value = true
   try {
     const r = await exportAnalysisXlsx(app.current, currentName.value) as any
-    if (r?.job && r.id) { const j = await trackJob(r.id, '导出 xlsx'); if (!j.success) throw new Error(j.err || '导出失败') }
+    if (r?.job && r.id) { const j = await trackJob(r.id, t('views.lapian.job.xlsx')); if (!j.success) throw new Error(j.err || t('views.lapian.exportFailed')) }
     const file = r.file || `projects/${app.current}/拉片/${currentName.value}/${currentName.value}_分镜脚本.xlsx`
     xlsxSheets.value = null   // 导出后失效 xlsx 页签缓存
     const a = document.createElement('a')
     a.href = mediaUrl(file)
     a.download = file.split('/').pop() || '分镜脚本.xlsx'
     a.click()
-    toast(`分镜脚本已导出：${a.download}`, 'ok')
+    toast(t('views.lapian.xlsxExported', { file: a.download }), 'ok')
   } catch (e) {
-    toast(e instanceof Error ? e.message : '导出失败', 'err')
+    toast(e instanceof Error ? e.message : t('views.lapian.exportFailed'), 'err')
   } finally {
     exportingXlsx.value = false
   }
@@ -393,12 +389,12 @@ async function syncLines() {
   linesMerging.value = true
   try {
     const r = await mergeAnalysisLines(app.current, currentName.value) as any
-    if (r?.job && r.id) { const j = await trackJob(r.id, '同步台词'); if (!j.success) throw new Error(j.err || '同步失败') }
-    toast(`台词已并入（说话人以台词页归属为准）`, 'ok')
+    if (r?.job && r.id) { const j = await trackJob(r.id, t('views.lapian.job.syncLines')); if (!j.success) throw new Error(j.err || t('views.lapian.syncFailed')) }
+    toast(t('views.lapian.linesMerged'), 'ok')
     await loadVersion(currentName.value)
     mdText.value = ''   // analysis.md 已重生成，重进页签时刷新
   } catch (e) {
-    toast(e instanceof Error ? e.message : '同步失败', 'err')
+    toast(e instanceof Error ? e.message : t('views.lapian.syncFailed'), 'err')
   } finally {
     linesMerging.value = false
   }
@@ -407,28 +403,28 @@ async function syncLines() {
 /** 对当前版本跑 AI 填充：only_empty=true 只填空镜，false 全部重识（二次确认）。 */
 async function aiFill(onlyEmpty: boolean) {
   if (!app.current || !currentName.value) {
-    toast('请先在左侧选择一个解构版本', 'err')
+    toast(t('views.lapian.pickVersion'), 'err')
     return
   }
   if (
     !onlyEmpty &&
-    !confirm(`将对「${currentName.value}」全部 ${shots.value.length} 个镜头重新调 AI 识别（覆盖已有字段，每个镜头消耗一次 LLM 调用费用），继续？`)
+    !confirm(t('views.lapian.confirmRefill', { name: currentName.value, n: shots.value.length }))
   ) {
     return
   }
   aiFilling.value = true
   try {
     const r = await runAnalysisAi({ project: app.current, name: currentName.value, only_empty: onlyEmpty })
-    toast(`AI 填充任务 #${r.id} 已启动`, 'ok')
-    const j = await trackJob(r.id, onlyEmpty ? 'AI 填充空镜' : '全部重识')
+    toast(t('common.jobStarted', { what: t('views.lapian.what.aiFill'), id: r.id }), 'ok')
+    const j = await trackJob(r.id, onlyEmpty ? t('views.lapian.job.fillEmpty') : t('views.lapian.job.refillAll'))
     if (j.success) {
-      toast('AI 填充完成', 'ok')
+      toast(t('views.lapian.aiFillDone'), 'ok')
       await loadVersion(currentName.value)
     } else {
-      toast('AI 填充失败，详情见任务抽屉', 'err')
+      toast(t('views.lapian.aiFillFailed'), 'err')
     }
   } catch (e) {
-    toast(e instanceof Error ? e.message : '启动失败', 'err')
+    toast(e instanceof Error ? e.message : t('common.startFailed'), 'err')
   } finally {
     aiFilling.value = false
   }
@@ -442,18 +438,18 @@ async function reshotOne(shot: AnalysisShot) {
   reshotBusy.value = { ...reshotBusy.value, [shot.id]: true }
   try {
     const r = await reshotShots({ project: app.current, name: currentName.value, shots: [shot.id] })
-    toast(`重识任务 #${r.id} 已启动（${shot.id}）`, 'ok')
-    const j = await trackJob(r.id, `重新识别 ${shot.id}`)
+    toast(t('views.lapian.reshotStarted', { id: r.id, shot: shot.id }), 'ok')
+    const j = await trackJob(r.id, t('views.lapian.job.reshot', { shot: shot.id }))
     if (j.success) {
-      toast(`${shot.id} 重新识别完成`, 'ok')
+      toast(t('views.lapian.reshotDone', { shot: shot.id }), 'ok')
       await loadVersion(currentName.value)
       await nextTick()
       document.getElementById(`shot-${shot.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     } else {
-      toast('重新识别失败，详情见任务抽屉', 'err')
+      toast(t('views.lapian.reshotFailed'), 'err')
     }
   } catch (e) {
-    toast(e instanceof Error ? e.message : '启动失败', 'err')
+    toast(e instanceof Error ? e.message : t('common.startFailed'), 'err')
   } finally {
     const rest = { ...reshotBusy.value }
     delete rest[shot.id]
@@ -541,109 +537,109 @@ watch(() => app.current, () => {
 <template>
   <div class="page">
     <header class="mb-6">
-      <h1 class="grad-text text-2xl font-black">① 拉片结构</h1>
-      <p class="mt-1 text-xs text-slate-500">切点检测 + 关键帧抽取 + 结构化镜头语言（景别 / 运镜 / 角度 / 光线 / 叙事）</p>
+      <h1 class="grad-text text-2xl font-black">{{ $t('views.lapian.title') }}</h1>
+      <p class="mt-1 text-xs text-slate-500">{{ $t('views.lapian.intro') }}</p>
       <button class="btn btn-ghost mt-2" :disabled="kbBusy"
-        title="把全部拉片成果归纳成经验卡片（正反打/快切/对峙/仰视压迫/长镜台词轨…），创作时自动垫上下文；手动卡片不受影响"
+        :title="$t('views.lapian.precipitateTitle')"
         @click="precipitate">
-        {{ kbBusy ? '沉淀中…' : '⬇ 沉淀为经验卡' }}
+        {{ kbBusy ? $t('views.lapian.precipitating') : $t('views.lapian.precipitate') }}
       </button>
     </header>
 
     <!-- 工具条 -->
     <div class="glass mb-6 flex flex-wrap items-end gap-3 p-4">
       <label class="min-w-56 flex-1 text-xs text-slate-400">
-        源视频（项目 拉片素材/）
+        {{ $t('common.srcVideo') }}
         <StyledSelect
           v-model="video"
           class="mt-1"
           :options="videoOptions"
           :labels="videoLabels"
           :storage-key="`wb.${app.current}.lapian.video`"
-          placeholder="— 选择素材视频 —"
+          :placeholder="$t('common.pickVideo')"
         />
       </label>
       <UploadButton @uploaded="loadBasics" />
       <p v-if="app.current && !materialList.length" class="mb-2 rounded-lg bg-amber-400/10 px-3 py-1.5 text-xs-plus text-amber-300">
-        素材为空：点上方「上传视频」直接上传，或到首页「从 Downloads 导入」（仅服务器本机）
+        {{ $t('views.lapian.noMaterial') }}
       </p>
       <label class="w-44 text-xs text-slate-400">
-        分析名
-        <input v-model="newName" class="input mt-1" placeholder="默认自动命名 v1 / v2…" />
+        {{ $t('views.lapian.name') }}
+        <input v-model="newName" class="input mt-1" :placeholder="$t('views.lapian.namePh')" />
       </label>
       <label class="w-52 flex-1 text-xs text-slate-400">
-        备注
-        <input v-model="note" class="input mt-1" placeholder="可选：本次分析的关注点" />
+        {{ $t('views.lapian.note') }}
+        <input v-model="note" class="input mt-1" :placeholder="$t('views.lapian.notePh')" />
       </label>
       <div class="pb-1 text-xs">
         <label class="flex cursor-pointer items-center gap-1.5 text-slate-300">
           <input v-model="useAi" type="checkbox" class="accent-cyan-400" @change="aiTouched = true" />
-          AI 解构
+          {{ $t('views.lapian.useAi') }}
         </label>
         <div class="mt-0.5 min-h-4">
-          <p v-if="useAi && aiVendor" class="text-2xs text-cyan-300/80">将使用 {{ aiVendor.label }} · {{ aiVendor.models?.vision }}</p>
-          <p v-else-if="!aiVendor" class="text-2xs text-slate-500">④ 环境检查配置 vision 厂商后可自动分析</p>
+          <p v-if="useAi && aiVendor" class="text-2xs text-cyan-300/80">{{ $t('views.lapian.willUse', { label: aiVendor.label, model: aiVendor.models?.vision }) }}</p>
+          <p v-else-if="!aiVendor" class="text-2xs text-slate-500">{{ $t('views.lapian.needVision') }}</p>
         </div>
       </div>
       <button class="btn" :disabled="running || !app.current" @click="runRegen">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.bolt" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        {{ running ? '运行中…' : '生成解构' }}
+        {{ running ? $t('views.lapian.running') : $t('views.lapian.run') }}
       </button>
       <button
         class="btn btn-ghost btn-sm"
         :disabled="linesMerging || !currentName"
-        title="把台词页合并的台词脚本按时间并入各镜（无 AI，秒级）；台词/归属更新后重跑这个即可，不用重新生成"
+        :title="$t('views.lapian.syncTitle')"
         @click="syncLines"
       >
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.chat" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        {{ linesMerging ? '同步中…' : '同步台词' }}
+        {{ linesMerging ? $t('views.lapian.syncing') : $t('views.lapian.job.syncLines') }}
       </button>
       <button
         class="btn btn-ghost btn-sm"
         :disabled="aiFilling || !currentName"
-        title="不重新切点抽帧，只对有空的镜头调 AI"
+        :title="$t('views.lapian.fillTitle')"
         @click="aiFill(true)"
       >
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.wand" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        {{ aiFilling ? 'AI 填充中…' : 'AI 填充空镜' }}
+        {{ aiFilling ? $t('views.lapian.filling') : $t('views.lapian.job.fillEmpty') }}
       </button>
       <button
         class="btn btn-ghost btn-sm"
         :disabled="aiFilling || !currentName"
-        title="对全部镜头重新调 AI 识别（覆盖已有字段，需确认）"
+        :title="$t('views.lapian.refillTitle')"
         @click="aiFill(false)"
       >
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.refresh" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        全部重识
+        {{ $t('views.lapian.job.refillAll') }}
       </button>
-      <button class="btn btn-ghost btn-sm" @click="advOpen = !advOpen">高级参数 {{ advOpen ? '▴' : '▾' }}</button>
+      <button class="btn btn-ghost btn-sm" @click="advOpen = !advOpen">{{ $t('views.lapian.advanced') }} {{ advOpen ? '▴' : '▾' }}</button>
     </div>
 
     <!-- 高级参数（折叠） -->
     <div v-if="advOpen" class="glass mb-6 flex flex-wrap items-end gap-4 p-4 text-xs text-slate-400">
       <label class="w-24">
-        最短镜头 (s)
+        {{ $t('views.lapian.minDur') }}
         <input v-model.number="minDur" type="number" step="0.1" min="0" class="input mt-1 tabular-nums" />
       </label>
       <label class="w-24">
-        切点阈值
+        {{ $t('views.lapian.thresh') }}
         <input v-model.number="thresh" type="number" step="1" min="1" class="input mt-1 tabular-nums" />
       </label>
-      <label class="w-24" title="厂商 vision 逐镜识别的并发路数；遇 429 限流报错时调小">
-        AI 并发
+      <label class="w-24" :title="$t('views.lapian.workersTitle')">
+        {{ $t('views.lapian.workers') }}
         <input v-model.number="workers" type="number" step="1" min="1" max="16" class="input mt-1 tabular-nums" />
       </label>
-      <p class="pb-2 text-2xs text-slate-500">min_dur：短于此的抖动不切镜；thresh：切点检测灵敏度，越大越保守（默认 2.0 / 13 / 并发 4）；中断重跑自动复用已识别镜</p>
+      <p class="pb-2 text-2xs text-slate-500">{{ $t('views.lapian.advHint') }}</p>
     </div>
 
-    <EmptyState v-if="!app.current" title="请先在左侧选择项目" />
+    <EmptyState v-if="!app.current" :title="$t('common.pickProjectFirst')" />
 
     <div v-else class="flex gap-5">
       <!-- 版本时间线 -->
       <aside class="w-60 shrink-0">
-        <h3 class="mb-2 text-xs font-bold text-slate-500">解构版本</h3>
+        <h3 class="mb-2 text-xs font-bold text-slate-500">{{ $t('views.lapian.versions') }}</h3>
         <div v-if="notFound || !versions.length" class="glass p-4 text-center text-xs text-slate-500">
-          暂无解构版本<br />在上方选视频后点「生成解构」
+          {{ $t('views.lapian.noVersions1') }}<br />{{ $t('views.lapian.noVersions2') }}
         </div>
         <div v-else class="relative space-y-2 pl-4">
           <div class="absolute bottom-2 left-[5px] top-2 w-px bg-gradient-to-b from-fuchsia-500/60 to-cyan-500/40"></div>
@@ -664,7 +660,7 @@ watch(() => app.current, () => {
               >{{ v.engine || 'cut' }}</span>
             </div>
             <div class="mt-1 text-2xs text-slate-500">
-              {{ v.created_at || '' }} · {{ v.shot_count ?? '?' }} 镜
+              {{ v.created_at || '' }} · {{ $t('common.shots', { n: v.shot_count ?? '?' }) }}
               <template v-if="v.first_t !== undefined && v.last_t !== undefined">
                 · {{ fmtT(v.first_t) }}–{{ fmtT(v.last_t) }}
               </template>
@@ -672,7 +668,7 @@ watch(() => app.current, () => {
             <div v-if="v.note" class="mt-1 truncate text-2xs text-fuchsia-300/70">{{ v.note }}</div>
             <button
               class="btn-danger absolute bottom-2 right-2 rounded-md p-0.5 transition"
-              title="删除版本"
+              :title="$t('views.lapian.deleteVersion')"
               @click.stop="removeVersion(v.name)"
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.trash" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -683,15 +679,15 @@ watch(() => app.current, () => {
 
       <!-- 主区 -->
       <section class="min-w-0 flex-1">
-        <div v-if="loading" class="glass p-10 text-center text-sm text-slate-500">加载解构中…</div>
+        <div v-if="loading" class="glass p-10 text-center text-sm text-slate-500">{{ $t('views.lapian.loading') }}</div>
 
         <div v-else-if="!analysis" class="glass p-12 text-center">
           <svg class="mx-auto mb-3 opacity-40" width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#e879f9" stroke-width="1.5"><path :d="icons.clapper" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <p class="text-sm text-slate-300">还没有加载任何解构版本</p>
+          <p class="text-sm text-slate-300">{{ $t('views.lapian.nothingLoaded') }}</p>
           <p class="mt-2 text-xs leading-relaxed text-slate-500">
-            ① 顶部选择源视频 → ② 点「生成解构」自动切点+抽帧<br />
-            ③ 在左侧时间线切换版本，点击表格字段即可编辑<br />
-            提示：台词在「② 台词分析」页合并（合并后自动同步进解构）——拉片 dialogue 与白模分镜台词都以合并结果为准（ASR 为主 + AI 归属）；台词更新后点「同步台词」即可，无需重新生成
+            {{ $t('views.lapian.guide1') }}<br />
+            {{ $t('views.lapian.guide2') }}<br />
+            {{ $t('views.lapian.guide3') }}
           </p>
         </div>
 
@@ -699,24 +695,24 @@ watch(() => app.current, () => {
           <!-- 操作条 -->
           <div class="mb-4 flex items-center gap-2">
             <span class="pop-in rounded-lg bg-fuchsia-400/10 px-3 py-1.5 text-sm font-bold text-fuchsia-300">{{ currentName }}</span>
-            <span class="text-xs text-slate-500">{{ shots.length }} 个镜头 · engine={{ analysis.engine || 'cut' }}</span>
-            <span v-if="dirty" class="pop-in rounded-full bg-amber-400/15 px-2 py-0.5 text-2xs font-bold text-amber-300">● 有未保存修改</span>
+            <span class="text-xs text-slate-500">{{ $t('views.lapian.shotsEngine', { n: shots.length, engine: analysis.engine || 'cut' }) }}</span>
+            <span v-if="dirty" class="pop-in rounded-full bg-amber-400/15 px-2 py-0.5 text-2xs font-bold text-amber-300">{{ $t('views.lapian.dirty') }}</span>
             <div class="flex-1"></div>
             <button class="btn btn-ghost btn-sm" @click="exportMd">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.download" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              导出 md
+              {{ $t('views.lapian.exportMd') }}
             </button>
             <button class="btn btn-ghost btn-sm" :disabled="exportingXlsx" @click="exportXlsx">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.download" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              {{ exportingXlsx ? '导出中…' : '导出分镜脚本 xlsx' }}
+              {{ exportingXlsx ? $t('views.lapian.exporting') : $t('views.lapian.exportXlsx') }}
             </button>
             <button class="btn btn-ghost btn-sm" @click="regeneratePlus">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.refresh" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              重新生成 (名称+1)
+              {{ $t('views.lapian.regenPlus') }}
             </button>
             <button class="btn btn-sm" :disabled="!dirty" @click="save">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.save" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              保存修改
+              {{ $t('views.lapian.saveChanges') }}
             </button>
           </div>
 
@@ -728,53 +724,53 @@ watch(() => app.current, () => {
               class="rounded-t-lg px-3 py-1.5 text-xs font-bold transition"
               :class="viewTab === t.key ? 'chip-active' : 'chip'"
               @click="viewTab = t.key"
-            >{{ t.label }}</button>
+            >{{ $t('views.lapian.tab.' + t.key) }}</button>
             <span class="flex-1"></span>
             <button
               v-if="whiteBoard"
               class="btn btn-ghost btn-sm mb-1"
-              title="台词/归属更新后可点此重新生成（会覆盖同名分镜）"
+              :title="$t('views.lapian.regenWhiteTitle')"
               :disabled="genWhiteBusy"
               @click="genWhiteBoard"
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.refresh" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              {{ genWhiteBusy ? '生成中…' : '重生成白模分镜' }}
+              {{ genWhiteBusy ? $t('common.generating') : $t('views.lapian.regenWhite') }}
             </button>
             <button
               v-if="whiteBoard"
               class="btn btn-sm mb-1"
-              :title="`已关联 分镜/${whiteBoard}`"
+              :title="$t('views.lapian.linkedBoard', { name: whiteBoard })"
               @click="goWhite"
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.cube" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              白模分镜 ✓ 去渲染
+              {{ $t('views.lapian.goRender') }}
             </button>
             <button
               v-else
               class="btn btn-sm mb-1"
-              title="把本解构版本翻译成白模引擎分镜（景别→机位、台词→镜内字幕），落到 分镜/ 目录"
+              :title="$t('views.lapian.genWhiteTitle')"
               :disabled="genWhiteBusy"
               @click="genWhiteBoard"
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.cube" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              {{ genWhiteBusy ? '生成中…' : '生成白模分镜' }}
+              {{ genWhiteBusy ? $t('common.generating') : $t('views.lapian.genWhite') }}
             </button>
           </div>
 
           <!-- 页签：白模分镜 JSON（分镜/<版本名>.json 在线看） -->
           <div v-if="viewTab === 'json'">
             <div v-if="!whiteBoard" class="glass p-10 text-center">
-              <p class="text-sm text-slate-300">本版本还没有白模分镜</p>
-              <p class="mt-2 text-xs text-slate-500">点页签栏右侧「生成白模分镜」，产物为 分镜/{{ currentName }}.json，生成后在此直接查看</p>
+              <p class="text-sm text-slate-300">{{ $t('views.lapian.noWhite') }}</p>
+              <p class="mt-2 text-xs text-slate-500">{{ $t('views.lapian.noWhiteHint', { name: currentName }) }}</p>
             </div>
-            <div v-else-if="wbJsonLoading" class="glass p-10 text-center text-sm text-slate-500">读取分镜 JSON 中…</div>
+            <div v-else-if="wbJsonLoading" class="glass p-10 text-center text-sm text-slate-500">{{ $t('views.lapian.readingJson') }}</div>
             <template v-else-if="wbJson">
               <div class="glass mb-3 flex flex-wrap items-center gap-3 p-3">
                 <div class="min-w-0">
                   <p class="truncate text-sm font-bold text-slate-200">{{ wbJson.title || whiteBoard }}</p>
                   <p class="mt-0.5 text-2xs text-slate-500">
                     分镜/{{ whiteBoard }} · {{ wbJson.w }}×{{ wbJson.h }} @{{ wbJson.fps }}fps ·
-                    {{ wbJson.shots?.length || 0 }} 镜 · 镜内台词 {{ wbShotLines }} 条
+                    {{ $t('views.lapian.jsonMeta', { shots: wbJson.shots?.length || 0, lines: wbShotLines }) }}
                   </p>
                 </div>
                 <div class="flex flex-wrap items-center gap-1.5">
@@ -788,32 +784,32 @@ watch(() => app.current, () => {
                   </span>
                 </div>
                 <span class="flex-1"></span>
-                <button class="btn btn-ghost btn-sm" @click="wbJsonRaw = !wbJsonRaw">{{ wbJsonRaw ? '表格视图' : '原始 JSON' }}</button>
+                <button class="btn btn-ghost btn-sm" @click="wbJsonRaw = !wbJsonRaw">{{ wbJsonRaw ? $t('views.lapian.tableView') : $t('views.lapian.rawJson') }}</button>
               </div>
               <pre v-if="wbJsonRaw" class="glass max-h-[32rem] overflow-auto p-4 text-xs-plus leading-relaxed text-slate-300">{{ JSON.stringify(wbJson, null, 1) }}</pre>
               <div v-else class="glass max-h-[32rem] overflow-auto px-2 pb-2">
                 <table class="tbl-view">
                   <thead>
                     <tr>
-                      <th>镜号</th>
-                      <th>时长</th>
-                      <th>机位</th>
-                      <th>运镜</th>
-                      <th>镜内台词</th>
-                      <th>动作</th>
+                      <th>{{ $t('views.lapian.col.id') }}</th>
+                      <th>{{ $t('views.lapian.col.dur') }}</th>
+                      <th>{{ $t('views.lapian.col.cam') }}</th>
+                      <th>{{ $t('views.lapian.col.move') }}</th>
+                      <th>{{ $t('views.lapian.col.lines') }}</th>
+                      <th>{{ $t('views.lapian.col.action') }}</th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr v-for="s in wbJson.shots" :key="s.id">
                       <td class="font-black text-sky-300">{{ s.id }}</td>
                       <td class="tabular-nums text-slate-400">{{ (s.dur || 0).toFixed(1) }}s</td>
-                      <td class="text-slate-400">{{ BOARD_CAM_LABELS[s.cam || ''] || s.cam || '—' }}</td>
-                      <td class="whitespace-nowrap text-slate-500">{{ s.move || '—' }}</td>
+                      <td class="text-slate-400">{{ camLabel(s.cam) }}</td>
+                      <td class="whitespace-nowrap text-slate-500">{{ vocab('cameraMove', s.move) || '—' }}</td>
                       <td>
                         <div v-for="(L, li) in (s.lines || []).slice(0, 3)" :key="li" class="truncate" :style="{ color: wbActorColor(L.speaker) }">
                           【{{ wbActorName(L.speaker) || '?' }}】{{ L.line }}
                         </div>
-                        <span v-if="(s.lines || []).length > 3" class="text-2xs text-slate-500">…共 {{ (s.lines || []).length }} 条</span>
+                        <span v-if="(s.lines || []).length > 3" class="text-2xs text-slate-500">{{ $t('views.lapian.moreLines', { n: (s.lines || []).length }) }}</span>
                       </td>
                       <td class="max-w-56 text-slate-500"><span class="line-clamp-2">{{ s.action || '—' }}</span></td>
                     </tr>
@@ -825,11 +821,11 @@ watch(() => app.current, () => {
 
           <!-- 页签：分镜脚本 xlsx 在线看 -->
           <div v-if="viewTab === 'xlsx'">
-            <div v-if="xlsxLoading" class="glass p-10 text-center text-sm text-slate-500">读取/生成 xlsx 中…</div>
+            <div v-if="xlsxLoading" class="glass p-10 text-center text-sm text-slate-500">{{ $t('views.lapian.readingXlsx') }}</div>
             <template v-else-if="xlsxSheets">
               <div v-for="sh in xlsxSheets" :key="sh.title" class="mb-4">
                 <h4 class="mb-1.5 text-xs font-bold text-slate-400">
-                  {{ sh.title }} <span class="font-normal text-slate-500">（{{ Math.max(0, sh.rows.length - 1) }} 行）</span>
+                  {{ sh.title }} <span class="font-normal text-slate-500">{{ $t('views.lapian.rows', { n: Math.max(0, sh.rows.length - 1) }) }}</span>
                 </h4>
                 <div class="glass max-h-[28rem] overflow-auto px-2 pb-2">
                   <table class="tbl-view">
@@ -851,15 +847,15 @@ watch(() => app.current, () => {
 
           <!-- 页签：analysis.md 在线看 -->
           <div v-if="viewTab === 'md'">
-            <div v-if="mdLoading" class="glass p-10 text-center text-sm text-slate-500">读取 analysis.md 中…</div>
+            <div v-if="mdLoading" class="glass p-10 text-center text-sm text-slate-500">{{ $t('views.lapian.readingMd') }}</div>
             <pre v-else-if="mdText" class="glass max-h-[32rem] overflow-auto whitespace-pre-wrap p-4 text-xs-plus leading-relaxed text-slate-300">{{ mdText }}</pre>
-            <div v-else class="glass p-10 text-center text-sm text-slate-500">analysis.md 不存在（该版本目录下拉片/&lt;版本&gt;/analysis.md）</div>
+            <div v-else class="glass p-10 text-center text-sm text-slate-500">{{ $t('views.lapian.mdNotFound') }}</div>
           </div>
 
           <!-- 页签：镜头编辑（原有内容） -->
           <div v-show="viewTab === 'edit'">
           <div v-if="isNoAiVersion" class="mb-4 rounded-lg bg-amber-400/10 px-3 py-2 text-xs text-amber-300">
-            本版本由 no-ai 生成（engine: none），只有切点和关键帧——开启 AI 解构重新生成可自动填充景别/剧情/台词
+            {{ $t('views.lapian.noAiNote') }}
           </div>
 
           <!-- 镜头表格 -->
@@ -881,12 +877,12 @@ watch(() => app.current, () => {
                     class="group/kf relative h-16 w-28 overflow-hidden rounded-lg border border-line"
                     @click="openKf(shot, ki)"
                   >
-                    <img :src="kfUrl(shot, kf)" class="h-full w-full object-cover transition-transform duration-300 group-hover/kf:scale-110" loading="lazy" alt="关键帧" />
+                    <img :src="kfUrl(shot, kf)" class="h-full w-full object-cover transition-transform duration-300 group-hover/kf:scale-110" loading="lazy" :alt="$t('views.lapian.kfAlt')" />
                     <span class="absolute inset-0 flex items-center justify-center bg-black/0 text-white opacity-0 transition group-hover/kf:bg-black/30 group-hover/kf:opacity-100">
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.play" stroke-linejoin="round"/></svg>
                     </span>
                   </button>
-                  <div v-if="!(shot.keyframes || []).length" class="flex h-16 w-28 items-center justify-center rounded-lg border border-dashed border-line text-2xs text-slate-500">无关键帧</div>
+                  <div v-if="!(shot.keyframes || []).length" class="flex h-16 w-28 items-center justify-center rounded-lg border border-dashed border-line text-2xs text-slate-500">{{ $t('views.lapian.noKf') }}</div>
                 </div>
 
                 <!-- 字段 -->
@@ -894,15 +890,15 @@ watch(() => app.current, () => {
                   <div class="mb-2 flex flex-wrap items-center gap-2">
                     <span class="rounded-md bg-white/5 px-2 py-0.5 text-xs font-black tracking-wider text-fuchsia-300">{{ shot.id || 'S' + (si + 1) }}</span>
                     <span class="tabular-nums text-xs font-semibold text-cyan-300">{{ fmtT(shot.t_in) }} – {{ fmtT(shot.t_out) }}</span>
-                    <span class="text-2xs text-slate-500">时长 {{ (shot.duration ?? (shot.t_out - shot.t_in)).toFixed(1) }}s</span>
-                    <span v-if="shotEmpty(shot)" class="rounded-full bg-slate-500/15 px-2 py-0.5 text-2xs font-bold text-slate-500">待分析</span>
-                    <span v-if="shotEmpty(shot)" class="text-2xs text-slate-500">识别失败可点右侧「重新识别」</span>
+                    <span class="text-2xs text-slate-500">{{ $t('views.lapian.durS', { d: (shot.duration ?? (shot.t_out - shot.t_in)).toFixed(1) }) }}</span>
+                    <span v-if="shotEmpty(shot)" class="rounded-full bg-slate-500/15 px-2 py-0.5 text-2xs font-bold text-slate-500">{{ $t('views.lapian.pending') }}</span>
+                    <span v-if="shotEmpty(shot)" class="text-2xs text-slate-500">{{ $t('views.lapian.reshotHint') }}</span>
                     <span class="flex-1"></span>
                     <button
                       class="shrink-0 text-slate-500 transition hover:text-cyan-300"
                       :class="{ 'animate-spin': reshotBusy[shot.id || ''] }"
                       :disabled="reshotBusy[shot.id || '']"
-                      title="重新识别此镜（重新抽帧 + AI 识别）"
+                      :title="$t('views.lapian.reshotTitle')"
                       @click="reshotOne(shot)"
                     >
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.wand" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -911,49 +907,49 @@ watch(() => app.current, () => {
 
                   <div class="grid grid-cols-2 gap-2 md:grid-cols-4">
                     <label class="text-2xs text-slate-500">
-                      景别
-                      <StyledSelect v-model="shot.shot_size" class="mt-0.5" :options="SHOT_SIZES" @change="markDirty" />
+                      {{ $t('views.lapian.f.size') }}
+                      <StyledSelect v-model="shot.shot_size" class="mt-0.5" :options="SHOT_SIZES" :labels="vocabLabels('shotSize', SHOT_SIZES)" @change="markDirty" />
                     </label>
                     <label class="text-2xs text-slate-500">
-                      运镜
-                      <StyledSelect v-model="shot.camera_move" class="mt-0.5" :options="CAMERA_MOVES" @change="markDirty" />
+                      {{ $t('views.lapian.f.move') }}
+                      <StyledSelect v-model="shot.camera_move" class="mt-0.5" :options="CAMERA_MOVES" :labels="vocabLabels('cameraMove', CAMERA_MOVES)" @change="markDirty" />
                     </label>
                     <label class="text-2xs text-slate-500">
-                      角度
-                      <StyledSelect v-model="shot.angle" class="mt-0.5" :options="ANGLES" @change="markDirty" />
+                      {{ $t('views.lapian.f.angle') }}
+                      <StyledSelect v-model="shot.angle" class="mt-0.5" :options="ANGLES" :labels="vocabLabels('angle', ANGLES)" @change="markDirty" />
                     </label>
                     <label class="text-2xs text-slate-500">
-                      转场（入镜）
-                      <StyledSelect v-model="shot.transition" class="mt-0.5" :options="TRANSITIONS" placeholder="无" @change="markDirty" />
+                      {{ $t('views.lapian.f.transition') }}
+                      <StyledSelect v-model="shot.transition" class="mt-0.5" :options="TRANSITIONS" :labels="vocabLabels('transition', TRANSITIONS)" :placeholder="vocab('transition', '无')" @change="markDirty" />
                     </label>
                   </div>
 
                   <div class="mt-2 grid grid-cols-1 gap-2">
                     <label class="text-2xs text-slate-500">
-                      光线
-                      <input v-model="shot.lighting" class="input mt-0.5" placeholder="如：侧逆光、低照度、暖色台灯" @input="markDirty" />
+                      {{ $t('views.lapian.f.lighting') }}
+                      <input v-model="shot.lighting" class="input mt-0.5" :placeholder="$t('views.lapian.lightingPh')" @input="markDirty" />
                     </label>
                     <label class="text-2xs text-slate-500">
-                      动作
-                      <textarea v-model="shot.action" class="textarea mt-0.5" rows="2" placeholder="画面里发生了什么（走位/动作/调度）" @input="markDirty"></textarea>
+                      {{ $t('views.lapian.f.action') }}
+                      <textarea v-model="shot.action" class="textarea mt-0.5" rows="2" :placeholder="$t('views.lapian.actionPh')" @input="markDirty"></textarea>
                     </label>
                     <label class="text-2xs text-slate-500">
-                      叙事
-                      <textarea v-model="shot.story" class="textarea mt-0.5" rows="2" placeholder="这一镜在讲什么、信息点是什么" @input="markDirty"></textarea>
+                      {{ $t('views.lapian.f.story') }}
+                      <textarea v-model="shot.story" class="textarea mt-0.5" rows="2" :placeholder="$t('views.lapian.storyPh')" @input="markDirty"></textarea>
                     </label>
                     <label class="text-2xs text-slate-500">
-                      AI 提示词
-                      <textarea v-model="shot.prompt_cn" class="textarea mt-0.5" rows="2" placeholder="给视频生成模型的中文画面描述" @input="markDirty"></textarea>
+                      {{ $t('views.lapian.f.prompt') }}
+                      <textarea v-model="shot.prompt_cn" class="textarea mt-0.5" rows="2" :placeholder="$t('views.lapian.promptPh')" @input="markDirty"></textarea>
                     </label>
                   </div>
 
                   <!-- 台词气泡 -->
                   <div class="mt-2">
                     <div class="mb-1 flex items-center justify-between">
-                      <span class="text-2xs text-slate-500">台词（{{ shot.dialogue?.length || 0 }}）</span>
+                      <span class="text-2xs text-slate-500">{{ $t('views.lapian.dialogueN', { n: shot.dialogue?.length || 0 }) }}</span>
                       <button class="btn btn-ghost btn-sm" @click="addDialogue(shot)">
                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path :d="icons.plus" stroke-linecap="round"/></svg>
-                        加台词
+                        {{ $t('views.lapian.addLine') }}
                       </button>
                     </div>
                     <div v-if="shot.dialogue?.length" class="space-y-1.5">
@@ -965,17 +961,17 @@ watch(() => app.current, () => {
                         <span
                           v-if="d.span === 'overlap'"
                           class="shrink-0 rounded border border-amber-500/40 bg-amber-500/10 px-1 py-0.5 text-2xs text-amber-300"
-                          :title="`跨镜台词（事件 ${d.event || '?'}）：本句跨多个镜头，此镜为非主属引用`"
-                        >↔跨镜</span>
-                        <input v-model="d.speaker" class="input w-20 shrink-0" title="说话人" placeholder="角色" @input="markDirty" />
-                        <input v-model="d.text" class="input flex-1" placeholder="台词文本" @input="markDirty" />
+                          :title="$t('views.lapian.overlapTitle', { event: d.event || '?' })"
+                        >{{ $t('views.lapian.overlap') }}</span>
+                        <input v-model="d.speaker" class="input w-20 shrink-0" :title="$t('views.lapian.speakerTitle')" :placeholder="$t('views.lapian.speakerPh')" @input="markDirty" />
+                        <input v-model="d.text" class="input flex-1" :placeholder="$t('views.lapian.textPh')" @input="markDirty" />
                         <input
                           v-model.number="d.t_in" type="number" step="0.1" min="0"
-                          class="input w-16 shrink-0 tabular-nums" title="入点（秒）" @input="markDirty"
+                          class="input w-16 shrink-0 tabular-nums" :title="$t('views.lapian.tIn')" @input="markDirty"
                         />
                         <input
                           v-model.number="d.t_out" type="number" step="0.1" min="0"
-                          class="input w-16 shrink-0 tabular-nums" title="出点（秒）" @input="markDirty"
+                          class="input w-16 shrink-0 tabular-nums" :title="$t('views.lapian.tOut')" @input="markDirty"
                         />
                         <button class="btn-danger shrink-0 rounded-md p-0.5 transition" @click="removeDialogue(shot, di)">
                           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.trash" stroke-linecap="round" stroke-linejoin="round"/></svg>

@@ -2,11 +2,17 @@
 export type RequestBody = Record<string, unknown>
 export interface PendingRequest {nonce: string; body: RequestBody; created_at: string}
 const key = (project: string) => 'slate:production-request:' + project
+export type DurableErrorCode = 'corrupt' | 'nothingPending' | 'pendingConflict'
+/** code — для перевода на стороне вызывающего: утилита не зависит от i18n и тестируется в Node напрямую. */
+export class DurableRequestError extends Error {
+  code: DurableErrorCode
+  constructor(code: DurableErrorCode, message: string) { super(message); this.code = code }
+}
 export function pendingRequest(project: string, storage: Storage = localStorage): PendingRequest | null {
   const raw = storage.getItem(key(project))
   if (!raw) return null
   const value = JSON.parse(raw) as PendingRequest
-  if (!value.nonce || !value.body) throw new Error('未确认请求记录损坏，请保留记录并检查服务日志')
+  if (!value.nonce || !value.body) throw new DurableRequestError('corrupt', '未确认请求记录损坏，请保留记录并检查服务日志')
   return value
 }
 export function clearPendingRequest(project: string, storage: Storage = localStorage): void {
@@ -15,8 +21,8 @@ export function clearPendingRequest(project: string, storage: Storage = localSto
 export async function durableRequest<T>(body: RequestBody, send: (body: RequestBody) => Promise<T>, recover = false, storage: Storage = localStorage): Promise<T> {
   const project = String(body.project || '')
   const previous = pendingRequest(project, storage)
-  if (recover && !previous) throw new Error('当前项目没有未确认请求')
-  if (previous && !recover && JSON.stringify(previous.body) !== JSON.stringify(body)) throw new Error('存在未确认的提交，请先点击“接管未确认请求”，避免重复生成')
+  if (recover && !previous) throw new DurableRequestError('nothingPending', '当前项目没有未确认请求')
+  if (previous && !recover && JSON.stringify(previous.body) !== JSON.stringify(body)) throw new DurableRequestError('pendingConflict', '存在未确认的提交，请先点击“接管未确认请求”，避免重复生成')
   const pending = previous || {nonce: crypto.randomUUID(), body, created_at: new Date().toISOString()}
   // 存储不可用时抛错并停止；不能退回只在内存记录。
   storage.setItem(key(project), JSON.stringify(pending))
