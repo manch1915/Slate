@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t, vocab } from '../i18n'
 import { useBoardSelection } from '../utils/useBoardSelection'
 // -*- coding: utf-8 -*-
 /** ② 分镜生成：按集生成分镜（知识注入）→ 逐镜明细；生成拍摄资料包 → 包明细 */
@@ -10,7 +11,7 @@ import {
   rebuildProductionPrompts, rebuildProductionEpisode, fetchStoryboardRevision,
   mediaUrl, type ScriptBundle, type WhiteBoard, type KnowledgeSkill, type CreateItem
 } from '../api'
-import { conflictNotice, isRevisionConflict, overwriteAllowed } from '../utils/boardRevision'
+import { isRevisionConflict, overwriteAllowed } from '../utils/boardRevision'
 import { sceneLabel, speakerName } from '../utils/assetNames'
 import { app, projectFiles, toast, currentProject } from '../stores/app'
 import { trackJob } from '../stores/jobs'
@@ -80,12 +81,12 @@ const scenesMap = computed<Record<string, string>>(() => {
 const scenesAssets = computed(() => (data.value as any)?.scenes?.scenes || [])
 /** 场景列：scene_ref 场景名优先；room/field 是对话契约的预设地形（军帐室内/野外战场），翻译成中文展示 */
 function sceneCell(s: Shot): { label: string; cls: string; title: string } {
-  const label = sceneLabel(s, scenesMap.value)   // 取值规则与 xlsx 的 scene_cell() 同源
+  const label = sceneLabel(s, scenesMap.value, { field: t('views.shots.sceneField'), room: t('views.shots.sceneRoom') })   // 取值规则与 xlsx 的 scene_cell() 同源
   const ref = String(s.scene_ref || '').replace(/^@scene:/, '')
-  if (ref) return { label, cls: 'bg-violet-400/15 text-violet-300', title: `场景资产：@scene:${ref}` }
-  if (s.scene === 'field') return { label, cls: 'bg-amber-400/15 text-amber-300', title: 'field＝野外/战场预设地形（未关联场景资产）' }
-  if (s.scene === 'room') return { label, cls: 'bg-white/10 text-slate-400', title: 'room＝室内预设地形（未关联场景资产）' }
-  return { label: '—', cls: 'bg-white/5 text-slate-500', title: '未设置场景' }
+  if (ref) return { label, cls: 'bg-violet-400/15 text-violet-300', title: t('views.shots.sceneAsset', { ref }) }
+  if (s.scene === 'field') return { label, cls: 'bg-amber-400/15 text-amber-300', title: t('views.shots.fieldTitle') }
+  if (s.scene === 'room') return { label, cls: 'bg-white/10 text-slate-400', title: t('views.shots.roomTitle') }
+  return { label: '—', cls: 'bg-white/5 text-slate-500', title: t('views.shots.noSceneSet') }
 }
 
 async function load() {
@@ -160,10 +161,10 @@ function shotOutput(s: Shot) {
 }
 
 function outputStatusLabel(status?: CreateItem['status']): string {
-  if (status === 'done') return '已产出'
-  if (status === 'error') return '产出失败'
-  if (status) return '生成中'
-  return '未产出'
+  if (status === 'done') return t('views.shots.out.done')
+  if (status === 'error') return t('views.shots.out.error')
+  if (status) return t('views.shots.out.running')
+  return t('views.shots.out.none')
 }
 watch([() => app.current, () => currentProject.value?.name], load, { immediate: true })
 watch(board, loadBoard)
@@ -196,7 +197,7 @@ async function saveGrid() {
   if (!app.current || !board.value || !shots.value.length) return
   // 拿不到基线就不发写请求：整组回写一旦失去基线就退化成"最后写入者赢"，正是这次要堵的洞
   if (!boardFileRev.value) {
-    boardConflict.value = '没拿到这份分镜的基线版本（服务在重启、或文件刚被换过），已拦住保存。点「重新载入最新版」后再试。'
+    boardConflict.value = t('views.shots.noBaseline')
     return
   }
   savingGrid.value = true
@@ -206,17 +207,17 @@ async function saveGrid() {
     if (r.revision) boardFileRev.value = r.revision
     boardConflict.value = ''
     overwriteConfirmed.value = false
-    toast(`已保存 ${r.shots} 镜（旧版自动进 .versions）`, 'ok')
+    toast(t('views.shots.savedShots', { n: r.shots }), 'ok')
     if (r.unit_warnings?.length) {
       // ① 锚定的创作禁区命中：只提醒不拦保存（分镜是给人改的工作件，拦了等于抽奖）
       const first = r.unit_warnings[0]
-      toast(`创作禁区告警 ${r.unit_warnings.length} 镜：${first.shot_id} 违反 ${first.taboo_id}（${first.rule}）`, 'info', 8000)
+      toast(t('views.shots.tabooWarn', { n: r.unit_warnings.length, shot: first.shot_id, taboo: first.taboo_id, rule: first.rule }), 'info', 8000)
     }
     if (editsAtSave === gridEdits) { gridDirty.value = false; loadBoard() }
-    else { gridDirty.value = true; toast('保存期间你又改了内容：已保留你的编辑，暂不重载服务端版本', 'info') }
+    else { gridDirty.value = true; toast(t('views.shots.editedDuringSave'), 'info') }
   } catch (e) {
-    if (isRevisionConflict(e)) { boardConflict.value = conflictNotice(e); toast('分镜已被别处改动：本次保存没有写下去', 'err') }
-    else toast(e instanceof Error ? e.message : '保存失败', 'err')
+    if (isRevisionConflict(e)) { boardConflict.value = t('views.shots.conflictNotice'); toast(t('views.shots.changedElsewhere'), 'err') }
+    else toast(e instanceof Error ? e.message : t('common.saveFailed'), 'err')
   }
   finally { savingGrid.value = false }
 }
@@ -225,7 +226,7 @@ async function reloadLatest() {
   boardConflict.value = ''
   overwriteConfirmed.value = false
   await loadBoard()
-  toast('已重载服务端最新版，你的表格编辑被替换', 'info')
+  toast(t('views.shots.reloaded'), 'info')
 }
 /** 「仍用我的版本覆盖」= 重取基线后立刻把页面这份整组写回（旧版仍进 .versions，可回滚）。 */
 async function overwriteLatest() {
@@ -233,23 +234,23 @@ async function overwriteLatest() {
   try {
     const r = await fetchStoryboardRevision(app.current, board.value)
     if (!overwriteAllowed(overwriteConfirmed.value, r.revision || '')) {
-      toast('请先勾选「确认以我这版为准」再点覆盖', 'err'); return
+      toast(t('views.shots.tickFirst'), 'err'); return
     }
     boardFileRev.value = r.revision
     await saveGrid()
-  } catch (e) { toast(e instanceof Error ? e.message : '取基线失败，未覆盖', 'err') }
+  } catch (e) { toast(e instanceof Error ? e.message : t('views.shots.baselineFailed'), 'err') }
 }
 async function doXlsx() {
   if (!app.current || !board.value) return
   try {
     const r = await exportStoryboardXlsx(app.current, board.value) as any
-    if (r?.job && r.id) { const j = await trackJob(r.id, '导出 xlsx'); if (!j.success) throw new Error(j.err || '导出失败') }
+    if (r?.job && r.id) { const j = await trackJob(r.id, t('views.shots.job.xlsx')); if (!j.success) throw new Error(j.err || t('views.shots.exportFailed')) }
     r.file = r.file || `分镜/${board.value.replace(/\.json$/, '')}_分镜脚本.xlsx`
     const a = document.createElement('a')
     a.href = `/media?p=${encodeURIComponent(r.file)}`
     a.download = r.file.split('/').pop() || '分镜脚本.xlsx'
     a.click()
-  } catch (e) { toast(e instanceof Error ? e.message : '导出失败', 'err') }
+  } catch (e) { toast(e instanceof Error ? e.message : t('views.shots.exportFailed'), 'err') }
 }
 function linesOf(s: Shot): string {
   // 与 Excel 导出同口径：台词显示**名字**不是 id（板内 actors 优先，其次 ② 人物档案）
@@ -258,30 +259,30 @@ function linesOf(s: Shot): string {
 /** 删除当前分镜（同名单镜 xlsx 一并删除；.versions 历史快照保留可恢复） */
 async function removeBoard() {
   if (!app.current || !board.value) return
-  if (!window.confirm(`删除分镜「${board.value}」？\n同名单镜 Excel 一并删除；.versions 历史快照保留，可恢复。`)) return
+  if (!window.confirm(t('views.shots.confirmDelete', { name: board.value }))) return
   try {
     const r = await deleteStoryboard(app.current, board.value)
-    if (!r.ok) throw new Error(r.err || '删除失败')
-    toast(`已删除：${(r.deleted || []).join('、') || board.value}`, 'ok')
+    if (!r.ok) throw new Error(r.err || t('common.deleteFailed'))
+    toast(t('views.shots.deleted', { list: (r.deleted || []).join(t('common.listSep')) || board.value }), 'ok')
     board.value = ''
     await load()
-  } catch (e) { toast(e instanceof Error ? e.message : '删除失败', 'err') }
+  } catch (e) { toast(e instanceof Error ? e.message : t('common.deleteFailed'), 'err') }
 }
 /** 摄像机位（视角）可读描述：高度差+角度词+水平距离 */
 function viewOf(s: Shot): string {
   const ang = s.angle || '平视'
-  if (ang === '鸟瞰') return '顶拍·俯瞰'
+  if (ang === '鸟瞰') return t('views.shots.view.top')
   let h = ''
   const pos = s.pos || [], look = s.look || []
   if (pos.length === 3 && look.length === 3) {
     const d = look[1] - pos[1]
-    if (d > 0.8) h = '仰拍'
-    else if (d < -1.2) h = '高机位下压'
-    else h = '眼平'
+    if (d > 0.8) h = t('views.shots.view.low')
+    else if (d < -1.2) h = t('views.shots.view.high')
+    else h = t('views.shots.view.eye')
   }
   const dist = pos.length === 3 && look.length === 3
     ? Math.hypot(look[0] - pos[0], look[2] - pos[2]).toFixed(1) : '?'
-  return `${h || ang}·${dist}m`
+  return `${h || vocab('angle', ang)}·${dist}m`
 }
 const LENS_BY_SIZE: Record<string, string> = {
   '大特写': '100mm', '特写': '85mm', '近景': '85mm', '中近景': '50mm',
@@ -299,7 +300,7 @@ function fillDefaults() {
     if (!s.rig) s.rig = RIG_BY_MOVE[s.camera_move || ''] || (s.camera_move ? '固定' : '')
   }
   markDirty()
-  toast('已按景别/运镜补默认镜头与器械（空白格），可继续手改', 'info')
+  toast(t('views.shots.defaultsFilled'), 'info')
 }
 
 /** 垫上下文预览：按选中集的梗概+原文查将注入的知识卡片 */
@@ -326,15 +327,15 @@ async function doSb() {
   const selected = epsSel.value.length ? epsSel.value.filter((id) => readyIds.has(id)) : []
   if (skipped.length) {
     epsSel.value = selected
-    toast(`已跳过 ${skipped.join('、')}：暂无剧本文本，请先扩写`, 'info', 5000)
+    toast(t('views.shots.skipped', { list: skipped.join(t('common.listSep')) }), 'info', 5000)
   }
   const targets = selected.length ? selected : ['']
-  sbRunning.value = targets.map((e) => e || '全本')
+  sbRunning.value = targets.map((e) => e || t('views.shots.wholeScript'))
   const results = await Promise.allSettled(
     targets.map(async (ep) => {
       const r = await scriptStoryboard(app.current!, ep || undefined)
-      if (!r.id) throw new Error(r.err || '任务未启动')
-      return trackJob(r.id, `分镜 ${ep || '全本'}`)
+      if (!r.id) throw new Error(r.err || t('views.shots.jobNotStarted'))
+      return trackJob(r.id, t('views.shots.job.board', { ep: ep || t('views.shots.wholeScript') }))
     })
   )
   const ok = results.filter((r) => r.status === 'fulfilled' && (r.value as { success?: boolean }).success).length
@@ -344,10 +345,10 @@ async function doSb() {
       return [result.reason instanceof Error ? result.reason.message : String(result.reason)]
     }
     const value = result.value as { success?: boolean; err?: string }
-    return value.success ? [] : [value.err || '任务失败']
+    return value.success ? [] : [value.err || t('views.shots.jobFailed')]
   })
-  if (fail === 0) toast(`分镜生成完成：${ok} 个任务`, 'ok', 5000)
-  else toast(`完成 ${ok} / 失败 ${fail}：${failures.slice(0, 2).join('；')}`, 'err', 7000)
+  if (fail === 0) toast(t('views.shots.sbDone', { n: ok }), 'ok', 5000)
+  else toast(t('views.shots.sbPartial', { ok, failed: fail, list: failures.slice(0, 2).join(t('common.semiSep')) }), 'err', 7000)
   sbRunning.value = []
   load()
 }
@@ -366,24 +367,24 @@ function boardEpisode(name: string): string {
 }
 async function doRebuildPrompts() {
   if (!app.current || !board.value || busy.value) return
-  busy.value = '只更新提示词'
+  busy.value = 'prompts'
   try {
     const r = await rebuildProductionPrompts({ project: app.current, episode: boardEpisode(board.value) || undefined })
-    toast(`已更新 ${r.updated_prompts || 0} 镜提示词；未调用媒体模型`, 'ok', 5000)
+    toast(t('views.shots.promptsUpdated', { n: r.updated_prompts || 0 }), 'ok', 5000)
     await loadBoard()
-  } catch (e) { toast(e instanceof Error ? e.message : '提示词重建失败', 'err', 6000) }
+  } catch (e) { toast(e instanceof Error ? e.message : t('views.shots.rebuildFailed'), 'err', 6000) }
   finally { busy.value = '' }
 }
 async function doRebuildEpisode() {
   if (!app.current || !board.value || busy.value) return
   const episode = boardEpisode(board.value)
-  if (!episode) { toast('当前是全本分镜，无法按集重建；请使用“只更新提示词”', 'info', 4500); return }
-  busy.value = '重建本集提示词'
+  if (!episode) { toast(t('views.shots.wholeNoEpisode'), 'info', 4500); return }
+  busy.value = 'episode'
   try {
     const r = await rebuildProductionEpisode({ project: app.current, episode })
-    toast(`已重建 ${episode}：${r.updated_prompts || 0} 镜；未调用媒体模型`, 'ok', 5000)
+    toast(t('views.shots.episodeRebuilt', { ep: episode, n: r.updated_prompts || 0 }), 'ok', 5000)
     await loadBoard()
-  } catch (e) { toast(e instanceof Error ? e.message : '本集重建失败', 'err', 6000) }
+  } catch (e) { toast(e instanceof Error ? e.message : t('views.shots.episodeRebuildFailed'), 'err', 6000) }
   finally { busy.value = '' }
 }
 async function doActingPrompt(s: Shot) {
@@ -392,23 +393,23 @@ async function doActingPrompt(s: Shot) {
   try {
     const r = await compileActingPrompt({ project: app.current, storyboard: board.value, shot_id: s.id, mode: 'stateful' })
     actingPrompt.value = r.prompt || ''
-    toast('演员提示词已编译（未调用模型）', 'ok', 3500)
-  } catch (e) { toast(e instanceof Error ? e.message : '演员提示词编译失败', 'err') }
+    toast(t('views.shots.actingCompiled'), 'ok', 3500)
+  } catch (e) { toast(e instanceof Error ? e.message : t('views.shots.actingCompileFailed'), 'err') }
   finally { actingCompiling.value = false }
 }
 async function doRunActing(s: Shot) {
   if (!app.current || !board.value || !actingVendor.value) {
-    toast('请先在环境页配置并启用 text 厂商', 'err', 4500); return
+    toast(t('views.shots.needTextVendor'), 'err', 4500); return
   }
-  busy.value = `演员 ${s.id}`
+  busy.value = `acting:${s.id}`
   try {
     const r = await runActing({ project: app.current, storyboard: board.value, shot_id: s.id, vendor_id: actingVendor.value.id })
-    if (!r.id) throw new Error(r.err || '演员任务未启动')
-    const j = await trackJob(r.id, `演员表演 ${s.id}`)
-    if (!j.success) throw new Error(j.err || '演员任务失败')
-    toast('演员候选已生成 ' + s.id + '，请到「⑤ 演员表现」审核并应用', 'ok', 5000)
+    if (!r.id) throw new Error(r.err || t('views.shots.actingNotStarted'))
+    const j = await trackJob(r.id, t('views.shots.job.acting', { id: s.id }))
+    if (!j.success) throw new Error(j.err || t('views.shots.actingFailed'))
+    toast(t('views.shots.actingReady', { id: s.id }), 'ok', 5000)
     await loadBoard()
-  } catch (e) { toast(e instanceof Error ? e.message : '演员任务失败', 'err', 6000) }
+  } catch (e) { toast(e instanceof Error ? e.message : t('views.shots.actingFailed'), 'err', 6000) }
   finally { busy.value = '' }
 }
 useBoardSelection(board, boards, 'shots')
@@ -417,11 +418,11 @@ useBoardSelection(board, boards, 'shots')
 <template>
   <div class="page">
     <header class="mb-6">
-      <h1 class="grad-text text-2xl font-black">③ 分镜生成</h1>
-      <p class="mt-1 text-xs text-slate-500">LLM 同时生成转场镜头的参考帧、视频、宫格提示词及 V 分组。三类提示词可分别编辑，创作台使用同一份分镜。</p>
+      <h1 class="grad-text text-2xl font-black">{{ $t('views.shots.title') }}</h1>
+      <p class="mt-1 text-xs text-slate-500">{{ $t('views.shots.intro') }}</p>
     </header>
 
-    <EmptyState v-if="!app.current" title="请先在左侧选择项目" />
+    <EmptyState v-if="!app.current" :title="$t('common.pickProjectFirst')" />
 
     <template v-else>
       <!-- 生成分镜 -->
@@ -429,71 +430,71 @@ useBoardSelection(board, boards, 'shots')
         <!-- 行 0：集选择（独立分块 · 默认全选可生成集） -->
         <div class="mb-3 rounded-xl border border-pink-400/25 bg-pink-400/5 p-3">
           <div class="flex flex-wrap items-center gap-2">
-            <h3 class="shrink-0 text-sm font-black text-pink-200">选择集</h3>
-            <span class="shrink-0 text-xs text-slate-400">可多选 · 有正文 {{ readyEpisodes.length }}/{{ episodes.length }} · 默认已全选可生成集</span>
+            <h3 class="shrink-0 text-sm font-black text-pink-200">{{ $t('views.shots.pickEpisodes') }}</h3>
+            <span class="shrink-0 text-xs text-slate-400">{{ $t('views.shots.episodesInfo', { ready: readyEpisodes.length, total: episodes.length }) }}</span>
             <span class="flex-1"></span>
             <button v-if="readyEpisodes.length" class="shrink-0 rounded-full px-2.5 py-0.5 text-2xs font-bold"
               :class="allReadySelected ? 'bg-pink-400/25 text-pink-200' : 'bg-white/10 text-slate-300 hover:bg-white/20'"
               @click="toggleAllEpisodes">
-              {{ allReadySelected ? '取消全选' : '全选可生成集' }}
+              {{ allReadySelected ? $t('views.shots.deselectAll') : $t('views.shots.selectReady') }}
             </button>
           </div>
           <div class="mt-2 flex flex-wrap gap-1.5">
             <button v-for="e in episodes" :key="e.id" :disabled="!episodeReady(e)"
               class="rounded-full px-2.5 py-1 text-xs-plus font-bold transition disabled:cursor-not-allowed disabled:opacity-40"
               :class="epsSel.includes(e.id) ? 'chip-active' : 'chip'"
-              :title="episodeReady(e) ? '已就绪，可生成分镜' : '暂无剧本文本，请先在①剧本生成页扩写'"
-              @click="episodeReady(e) && toggleEp(e.id)">{{ e.id }} {{ e.title }}<span v-if="!episodeReady(e)">（待扩写）</span></button>
+              :title="episodeReady(e) ? $t('views.shots.epReady') : $t('views.shots.epNotReady')"
+              @click="episodeReady(e) && toggleEp(e.id)">{{ e.id }} {{ e.title }}<span v-if="!episodeReady(e)">{{ $t('views.shots.needsExpand') }}</span></button>
           </div>
-          <p v-if="!readyEpisodes.length" class="mt-2 text-xs text-amber-300/80">还没有可生成的集——先到 ① 剧本生成页扩写正文</p>
+          <p v-if="!readyEpisodes.length" class="mt-2 text-xs text-amber-300/80">{{ $t('views.shots.noReady') }}</p>
         </div>
         <!-- 行 1：生成分镜动作 -->
         <div class="flex flex-wrap items-center gap-2">
           <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-pink-400/15 text-xs font-black text-pink-300">1</span>
-          <h3 class="shrink-0 text-sm font-bold text-slate-200">生成分镜</h3>
-          <span v-if="epsSel.length" class="shrink-0 text-2xs text-slate-500">将生成：{{ epsSel.join('、') }}</span>
+          <h3 class="shrink-0 text-sm font-bold text-slate-200">{{ $t('views.shots.genBoard') }}</h3>
+          <span v-if="epsSel.length" class="shrink-0 text-2xs text-slate-500">{{ $t('views.shots.willGenerate', { list: epsSel.join($t('common.listSep')) }) }}</span>
           <span class="flex-1"></span>
-          <button class="btn shrink-0" :disabled="!!busy || !!sbRunning.length || !epsSel.length" @click="doSb" title="按选中的分集生成分镜 JSON；会更新镜头动作、机位和提示词">
-            {{ sbRunning.length ? `生成中（${sbRunning.join(' ')}）…` : epsSel.length > 1 ? `LLM 生成分镜（${epsSel.length} 集并行）` : 'LLM 生成分镜' }}
+          <button class="btn shrink-0" :disabled="!!busy || !!sbRunning.length || !epsSel.length" @click="doSb" :title="$t('views.shots.genTitle')">
+            {{ sbRunning.length ? $t('views.shots.generatingList', { list: sbRunning.join(' ') }) : epsSel.length > 1 ? $t('views.shots.genParallel', { n: epsSel.length }) : $t('views.shots.genLlm') }}
           </button>
         </div>
         <!-- 行 2：已有分镜与操作（槽位固定，控件底部对齐，不随上行换行偏移） -->
         <div class="mt-3 flex flex-wrap items-end gap-2 border-t border-line-soft pt-3">
-          <label class="w-56 shrink-0 text-xs text-slate-400">已有分镜
-            <StyledSelect v-model="board" class="mt-1" :options="boards" :storage-key="`wb.${app.current}.shots.board`" placeholder="— 选择 —" />
+          <label class="w-56 shrink-0 text-xs text-slate-400">{{ $t('views.shots.existing') }}
+            <StyledSelect v-model="board" class="mt-1" :options="boards" :storage-key="`wb.${app.current}.shots.board`" :placeholder="$t('views.shots.pickPh')" />
           </label>
-          <button class="btn shrink-0" :disabled="!board" title="走位战略图 / 平面图 / 预演包 / 逐镜包——分镜定稿后的组装产物都在平面推演页" @click="goPackage">去平面推演 →</button>
-          <button class="btn btn-ghost shrink-0" :disabled="!!busy || !board" @click="doRebuildPrompts" title="只按当前全局资产和分镜事实重建静态参考图/生视频提示词，不调用模型，不生成媒体">只更新提示词</button>
-          <button class="btn btn-ghost shrink-0" :disabled="!!busy || !board || !boardEpisode(board)" @click="doRebuildEpisode" title="重建当前分集的全部分镜提示词；不修改分集正文、大纲或已有图片视频">重建本集</button>
+          <button class="btn shrink-0" :disabled="!board" :title="$t('views.shots.goPackageTitle')" @click="goPackage">{{ $t('views.shots.goPackage') }}</button>
+          <button class="btn btn-ghost shrink-0" :disabled="!!busy || !board" @click="doRebuildPrompts" :title="$t('views.shots.promptsOnlyTitle')">{{ $t('views.shots.promptsOnly') }}</button>
+          <button class="btn btn-ghost shrink-0" :disabled="!!busy || !board || !boardEpisode(board)" @click="doRebuildEpisode" :title="$t('views.shots.rebuildEpTitle')">{{ $t('views.shots.rebuildEp') }}</button>
           <Versions v-if="board" :path="`projects/${app.current}/分镜/${board}`" kind="file" @restored="loadBoard" />
           <span v-if="board && boardRev !== null"
             class="shrink-0 rounded-full px-2.5 py-0.5 text-2xs"
             :class="boardStale ? 'bg-amber-400/15 text-amber-200' : 'bg-white/5 text-slate-400'"
-            :title="boardStale ? `剧本已更新到 v${scriptRev}，本图基于旧剧本 v${boardRev} 生成，建议重新生成分镜` : '本分镜生成时对应的剧本修订号'">
-            基于剧本 v{{ boardRev }}<template v-if="boardStale"> · 已过期(当前 v{{ scriptRev }})</template>
+            :title="boardStale ? $t('views.shots.staleTitle', { script: scriptRev, board: boardRev }) : $t('views.shots.revTitle')">
+            {{ $t('views.shots.basedOn', { rev: boardRev }) }}<template v-if="boardStale">{{ $t('views.shots.staleBadge', { rev: scriptRev }) }}</template>
           </span>
-          <button v-if="board" class="btn btn-danger shrink-0 px-2" title="删除本分镜（.versions 历史快照保留）" @click="removeBoard">
+          <button v-if="board" class="btn btn-danger shrink-0 px-2" :title="$t('views.shots.deleteTitle')" @click="removeBoard">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.trash" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
           <span class="flex-1"></span>
-          <StyleSelect target="storyboard" label="导演风格" />
-          <StyleSelect target="acting" label="演员风格" />
+          <StyleSelect target="storyboard" :label="$t('views.shots.directorStyle')" />
+          <StyleSelect target="acting" :label="$t('views.shots.actingStyle')" />
         </div>
         <!-- 资产前置提示（非阻断）：scene_ref 是平面图/空间一致性链路的根基，提炼应在分镜生成之前 -->
         <div v-if="!chars.length || !scenesAssets.length" class="mb-3 rounded-xl border border-amber-400/25 bg-amber-400/5 p-3 text-xs-plus leading-relaxed text-amber-200/90">
-          <b>资产未提炼。</b>正确顺序：① 剧本生成 → <b>② 素材提炼（人物/场景/道具）</b> → 回本页生成分镜——分镜会自动关联场景资产（scene_ref）与人物/道具引用，是平面推演与视频空间一致性的根基，无需任何手动绑定。
+          <b>{{ $t('views.shots.assets.b1') }}</b>{{ $t('views.shots.assets.t1') }}<b>{{ $t('views.shots.assets.b2') }}</b>{{ $t('views.shots.assets.t2') }}
           <template v-if="shots.length">
-            当前分镜已生成但未关联场景——<b>提炼后回到本页重新生成分镜即可自动补上</b>（已采用的关键帧/视频会保留）。
+            {{ $t('views.shots.assets.t3') }}<b>{{ $t('views.shots.assets.b3') }}</b>{{ $t('views.shots.assets.t4') }}
           </template>
-          <template v-else>纯对白/白模用法可以不提炼直接生成，但平面推演与参考帧回流将不可用。</template>
+          <template v-else>{{ $t('views.shots.assets.t5') }}</template>
         </div>
         <p v-if="!chars.length && false" class="mt-2 text-xs-plus text-amber-300/80"></p>
         <div v-if="kbHits.length" class="mt-2 flex flex-wrap items-center gap-1.5">
-          <span class="text-2xs font-bold text-emerald-400/80">将垫入上下文的拉片卡片</span>
+          <span class="text-2xs font-bold text-emerald-400/80">{{ $t('views.shots.kbCards') }}</span>
           <span v-for="h in kbHits" :key="h.id"
             class="rounded-full bg-emerald-400/10 px-2 py-0.5 text-2xs text-emerald-200"
             :title="h.prescription">
-            {{ h.skill }}<span v-if="(h as any).source === 'user'" class="ml-1 text-violet-300">我的</span>
+            {{ h.skill }}<span v-if="(h as any).source === 'user'" class="ml-1 text-violet-300">{{ $t('views.shots.mine') }}</span>
           </span>
         </div>
       </section>
@@ -504,60 +505,60 @@ useBoardSelection(board, boards, 'shots')
           <span class="flex h-6 w-6 items-center justify-center rounded-full bg-pink-400/15 text-xs font-black text-pink-300">2</span>
           <button class="rounded-lg px-3 py-1 text-xs font-bold transition"
             :class="viewTab === 'grid' ? 'chip-active' : 'chip'"
-            @click="viewTab = 'grid'">汇总表格</button>
+            @click="viewTab = 'grid'">{{ $t('views.shots.tabGrid') }}</button>
           <button class="rounded-lg px-3 py-1 text-xs font-bold transition"
             :class="viewTab === 'cards' ? 'chip-active' : 'chip'"
-            @click="viewTab = 'cards'">逐镜明细</button>
-          <span class="text-xs-plus text-slate-500">{{ shots.length }} 镜</span>
+            @click="viewTab = 'cards'">{{ $t('views.shots.tabCards') }}</button>
+          <span class="text-xs-plus text-slate-500">{{ $t('common.shots', { n: shots.length }) }}</span>
           <span class="flex-1"></span>
           <template v-if="viewTab === 'grid'">
-            <span v-if="gridDirty" class="text-xs-plus text-amber-300">有未保存修改</span>
+            <span v-if="gridDirty" class="text-xs-plus text-amber-300">{{ $t('views.shots.dirty') }}</span>
             <button class="btn btn-ghost" :disabled="!shots.length"
-              @click="gridFullscreen = !gridFullscreen">{{ gridFullscreen ? '退出全屏 (Esc)' : '全屏' }}</button>
-            <button class="btn btn-ghost" :disabled="!shots.length" title="按景别/运镜为空白格填默认镜头焦距与器械"
-              @click="fillDefaults">补默认</button>
-            <button class="btn btn-ghost" :disabled="savingGrid" @click="doXlsx">导出 Excel</button>
+              @click="gridFullscreen = !gridFullscreen">{{ gridFullscreen ? $t('views.shots.exitFull') : $t('views.shots.full') }}</button>
+            <button class="btn btn-ghost" :disabled="!shots.length" :title="$t('views.shots.fillTitle')"
+              @click="fillDefaults">{{ $t('views.shots.fill') }}</button>
+            <button class="btn btn-ghost" :disabled="savingGrid" @click="doXlsx">{{ $t('views.shots.exportExcel') }}</button>
             <button class="btn" :disabled="!gridDirty || savingGrid" @click="saveGrid">
-              {{ savingGrid ? '保存中…' : '保存修改' }}
+              {{ savingGrid ? $t('common.saving') : $t('views.shots.saveChanges') }}
             </button>
           </template>
         </div>
 
         <!-- 乐观锁冲突：服务端判基线过期时，页面这份内容仍然留着，由用户对照或显式覆盖——绝不静默盖掉 ⑦/⑤ 的改动 -->
         <div v-if="boardConflict" class="mb-3 rounded-lg border border-amber-400/30 bg-amber-400/10 p-3 text-xs text-amber-200">
-          <b class="font-bold">这份分镜被别处改动过，本次保存没有写下去</b>
+          <b class="font-bold">{{ $t('views.shots.conflictHead') }}</b>
           <p class="mt-1 leading-relaxed">{{ boardConflict }}</p>
           <div class="mt-2 flex flex-wrap items-center gap-3">
             <label class="flex items-center gap-1.5 text-2xs">
-              <input v-model="overwriteConfirmed" type="checkbox" /> 确认以我这版为准（会覆盖 ⑦/⑤ 改的提示词）
+              <input v-model="overwriteConfirmed" type="checkbox" /> {{ $t('views.shots.confirmMine') }}
             </label>
-            <button class="btn btn-ghost" @click="reloadLatest">重新载入最新版</button>
-            <button class="btn" :disabled="!overwriteConfirmed || savingGrid" @click="overwriteLatest">仍用我的版本覆盖</button>
+            <button class="btn btn-ghost" @click="reloadLatest">{{ $t('views.shots.reloadLatest') }}</button>
+            <button class="btn" :disabled="!overwriteConfirmed || savingGrid" @click="overwriteLatest">{{ $t('views.shots.overwrite') }}</button>
           </div>
         </div>
 
         <!-- 汇总表格（Excel 式）：镜号/场景/景别/时长/机位视角/器械/镜头/运镜/内容/动作/声音/光影/台词/三提示词。
              时长/器械/镜头为只读——初稿由 LLM 生成，实际调整在⑦创作生成；其余列行内编辑，整组回写（版本快照保护）。 -->
         <div v-if="viewTab === 'grid'">
-          <div v-if="!shots.length" class="py-10 text-center text-sm text-slate-500">选择或生成一个剧本分镜</div>
+          <div v-if="!shots.length" class="py-10 text-center text-sm text-slate-500">{{ $t('views.shots.pickOrGen') }}</div>
           <div v-else :class="gridFullscreen ? 'fixed inset-0 z-50 overflow-auto bg-[#0a0e17] p-4' : 'overflow-x-auto rounded-lg border border-line'">
             <table class="tbl-view border-collapse">
               <thead>
                 <tr>
-                  <th class="sticky-col">镜号</th>
-                  <th class="min-w-24">场景</th>
-                  <th class="w-20">景别</th>
-                  <th class="w-16">时长s</th>
-                  <th>机位(视角)</th>
-                  <th>器械</th>
-                  <th>镜头</th>
-                  <th>运镜</th>
-                  <th class="min-w-40">内容</th>
-                  <th class="min-w-36">动作</th>
-                  <th class="min-w-28">声音</th>
-                  <th class="min-w-28">光影</th>
-                  <th class="min-w-40">台词</th>
-                  <th class="min-w-64">参考帧提示词</th><th class="min-w-64">视频提示词</th><th class="min-w-64">宫格提示词</th>
+                  <th class="sticky-col">{{ $t('views.shots.col.id') }}</th>
+                  <th class="min-w-24">{{ $t('views.shots.col.scene') }}</th>
+                  <th class="w-20">{{ $t('views.shots.col.size') }}</th>
+                  <th class="w-16">{{ $t('views.shots.col.dur') }}</th>
+                  <th>{{ $t('views.shots.col.view') }}</th>
+                  <th>{{ $t('views.shots.col.rig') }}</th>
+                  <th>{{ $t('views.shots.col.lens') }}</th>
+                  <th>{{ $t('views.shots.col.move') }}</th>
+                  <th class="min-w-40">{{ $t('views.shots.col.content') }}</th>
+                  <th class="min-w-36">{{ $t('views.shots.col.action') }}</th>
+                  <th class="min-w-28">{{ $t('views.shots.col.sound') }}</th>
+                  <th class="min-w-28">{{ $t('views.shots.col.light') }}</th>
+                  <th class="min-w-40">{{ $t('views.shots.col.lines') }}</th>
+                  <th class="min-w-64">{{ $t('views.shots.col.promptImage') }}</th><th class="min-w-64">{{ $t('views.shots.col.promptVideo') }}</th><th class="min-w-64">{{ $t('views.shots.col.promptGrid') }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -567,12 +568,12 @@ useBoardSelection(board, boards, 'shots')
                     <span class="rounded px-1.5 py-0.5 text-2xs font-bold" :class="sceneCell(s).cls" :title="sceneCell(s).title">{{ sceneCell(s).label }}</span>
                   </td>
                   <!-- 景别：与 Excel 导出同列（原来只有 xlsx 有，两边口径对不上）；调整在逐镜明细/JSON -->
-                  <td class="whitespace-nowrap text-slate-300">{{ s.shot_size || '—' }}</td>
+                  <td class="whitespace-nowrap text-slate-300">{{ vocab('shotSize', s.shot_size) || '—' }}</td>
                   <td class="text-center tabular-nums text-slate-200">{{ s.dur ?? 4 }}s</td>
                   <td class="whitespace-nowrap text-slate-400" :title="`${JSON.stringify(s.pos)} → ${JSON.stringify(s.look)}`">{{ viewOf(s) }}</td>
                   <td class="whitespace-nowrap text-slate-300">{{ s.rig || '—' }}</td>
                   <td class="whitespace-nowrap text-slate-300">{{ s.lens || '—' }}</td>
-                  <td class="whitespace-nowrap text-slate-400">{{ s.camera_move }}</td>
+                  <td class="whitespace-nowrap text-slate-400">{{ vocab('cameraMove', s.camera_move) }}</td>
                   <td><textarea v-model="s.content" rows="2" class="cell-input text-slate-300" @input="markDirty"></textarea></td>
                   <td><textarea v-model="s.action" rows="2" class="cell-input text-slate-200" @input="markDirty"></textarea></td>
                   <td><textarea v-model="s.sound" rows="2" class="cell-input text-slate-400" @input="markDirty"></textarea></td>
@@ -589,7 +590,7 @@ useBoardSelection(board, boards, 'shots')
 
         <!-- 逐镜明细：左列表 + 右详情（主从布局，无弹窗） -->
         <div v-else>
-          <div v-if="!shots.length" class="py-10 text-center text-sm text-slate-500">选择或生成一个剧本分镜</div>
+          <div v-if="!shots.length" class="py-10 text-center text-sm text-slate-500">{{ $t('views.shots.pickOrGen') }}</div>
           <div v-else class="flex items-start gap-3">
             <!-- 左：镜头列表 -->
             <div class="modal-h-lg w-64 shrink-0 overflow-y-auto rounded-lg border border-line">
@@ -598,16 +599,16 @@ useBoardSelection(board, boards, 'shots')
                 :class="detail?.id === s.id ? 'bg-sky-400/10' : 'hover:bg-white/5'"
                 @click="detail = s">
                 <div class="h-9 w-14 shrink-0 overflow-hidden rounded border border-line bg-black/30">
-                  <img v-if="shotOutput(s)?.image" :src="mediaUrl(shotOutput(s)!.image!)" class="h-full w-full object-cover" loading="lazy" :alt="`${s.id} 参考图`" />
-                  <div v-else class="flex h-full items-center justify-center text-2xs text-slate-600">无图</div>
+                  <img v-if="shotOutput(s)?.image" :src="mediaUrl(shotOutput(s)!.image!)" class="h-full w-full object-cover" loading="lazy" :alt="$t('views.shots.refAlt', { id: s.id })" />
+                  <div v-else class="flex h-full items-center justify-center text-2xs text-slate-600">{{ $t('views.shots.noImage') }}</div>
                 </div>
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center gap-1.5">
                     <span class="font-black text-sky-300">{{ s.id }}</span>
-                    <span class="truncate text-2xs text-slate-400">{{ s.move || s.shot_size }}</span>
+                    <span class="truncate text-2xs text-slate-400">{{ s.move || vocab('shotSize', s.shot_size) }}</span>
                     <span class="ml-auto shrink-0 text-2xs tabular-nums text-slate-500">{{ s.dur }}s</span>
                   </div>
-                  <div class="mt-0.5 truncate text-2xs text-slate-500">{{ s.action || s.prompt || '未填写动作摘要' }}</div>
+                  <div class="mt-0.5 truncate text-2xs text-slate-500">{{ s.action || s.prompt || $t('views.shots.noActionSummary') }}</div>
                 </div>
               </button>
             </div>
@@ -617,54 +618,54 @@ useBoardSelection(board, boards, 'shots')
                 <span class="rounded bg-sky-400/15 px-2 py-0.5 text-sm font-black text-sky-300">{{ detail.id }}</span>
                 <b class="text-base text-slate-100">{{ detail.move }}</b>
                 <span class="text-xs text-slate-500">{{ detail.dur }}s · {{ detail.scene }}</span>
-                <span class="text-2xs text-slate-500">{{ outputStatusLabel(shotOutput(detail)?.status) }}<span v-if="shotOutput(detail)?.count"> · {{ shotOutput(detail)?.count }} 次产出</span></span>
+                <span class="text-2xs text-slate-500">{{ outputStatusLabel(shotOutput(detail)?.status) }}<span v-if="shotOutput(detail)?.count">{{ $t('views.shots.outputsN', { n: shotOutput(detail)?.count }) }}</span></span>
               </div>
               <details class="mb-3 rounded-lg border border-line-soft bg-black/15 px-2 py-1.5">
-                <summary class="cursor-pointer text-2xs text-slate-500">高级：主角演员表现候选（可选）</summary>
+                <summary class="cursor-pointer text-2xs text-slate-500">{{ $t('views.shots.advanced') }}</summary>
                 <div class="mt-2 flex flex-wrap items-center gap-2">
                   <button class="btn" :disabled="actingCompiling" @click="detail && doActingPrompt(detail)">
-                    {{ actingCompiling ? '编译中…' : '编译主角演员表现' }}
+                    {{ actingCompiling ? $t('views.shots.compiling') : $t('views.shots.compileActing') }}
                   </button>
                   <button class="btn btn-ghost" :disabled="!!busy || !actingVendor" @click="detail && doRunActing(detail)">
-                    {{ actingVendor ? '生成主角演员候选' : '请先配置 text 厂商' }}
+                    {{ actingVendor ? $t('views.shots.genActing') : $t('views.shots.needText') }}
                   </button>
-                  <span class="text-2xs text-slate-500">只补表情、视线和节奏，不改变镜头机位、走位和台词</span>
+                  <span class="text-2xs text-slate-500">{{ $t('views.shots.actingNote') }}</span>
                 </div>
               </details>
               <div class="space-y-3 text-xs">
                 <!-- 字段与汇总表格同列：场景/时长(头)/机位/器械/镜头/运镜/内容/动作/声音/光影/台词/三提示词 -->
                 <div class="grid grid-cols-2 gap-2">
-                  <div class="rounded-lg bg-white/5 p-2.5"><b class="text-slate-400">场景</b>
+                  <div class="rounded-lg bg-white/5 p-2.5"><b class="text-slate-400">{{ $t('views.shots.col.scene') }}</b>
                     <p class="mt-1"><span class="rounded px-1.5 py-0.5 text-2xs font-bold" :class="sceneCell(detail).cls" :title="sceneCell(detail).title">{{ sceneCell(detail).label }}</span></p></div>
-                  <div class="rounded-lg bg-white/5 p-2.5"><b class="text-slate-400">机位(视角)</b>
+                  <div class="rounded-lg bg-white/5 p-2.5"><b class="text-slate-400">{{ $t('views.shots.col.view') }}</b>
                     <p class="mt-1 text-slate-200" :title="`${JSON.stringify(detail.pos)} → ${JSON.stringify(detail.look)}`">{{ viewOf(detail) }}</p></div>
-                  <div class="rounded-lg bg-white/5 p-2.5"><b class="text-slate-400">器械</b><p class="mt-1 text-slate-200">{{ detail.rig || '—' }}</p></div>
-                  <div class="rounded-lg bg-white/5 p-2.5"><b class="text-slate-400">镜头</b><p class="mt-1 text-slate-200">{{ detail.lens || '—' }}</p></div>
-                  <div class="rounded-lg bg-white/5 p-2.5"><b class="text-slate-400">景别/角度</b><p class="mt-1 text-slate-200">{{ detail.shot_size }} · {{ detail.angle }}</p></div>
-                  <div class="rounded-lg bg-white/5 p-2.5"><b class="text-slate-400">运镜/转场</b><p class="mt-1 text-slate-200">{{ detail.camera_move }} · {{ detail.transition }}</p></div>
-                  <div class="rounded-lg bg-white/5 p-2.5"><b class="text-slate-400">机位 pos</b><p class="mt-1 font-mono text-slate-200">{{ JSON.stringify(detail.pos) }}</p></div>
-                  <div class="rounded-lg bg-white/5 p-2.5"><b class="text-slate-400">视点 look</b><p class="mt-1 font-mono text-slate-200">{{ JSON.stringify(detail.look) }}</p></div>
+                  <div class="rounded-lg bg-white/5 p-2.5"><b class="text-slate-400">{{ $t('views.shots.col.rig') }}</b><p class="mt-1 text-slate-200">{{ detail.rig || '—' }}</p></div>
+                  <div class="rounded-lg bg-white/5 p-2.5"><b class="text-slate-400">{{ $t('views.shots.col.lens') }}</b><p class="mt-1 text-slate-200">{{ detail.lens || '—' }}</p></div>
+                  <div class="rounded-lg bg-white/5 p-2.5"><b class="text-slate-400">{{ $t('views.shots.sizeAngle') }}</b><p class="mt-1 text-slate-200">{{ vocab('shotSize', detail.shot_size) }} · {{ vocab('angle', detail.angle) }}</p></div>
+                  <div class="rounded-lg bg-white/5 p-2.5"><b class="text-slate-400">{{ $t('views.shots.moveTrans') }}</b><p class="mt-1 text-slate-200">{{ vocab('cameraMove', detail.camera_move) }} · {{ vocab('transition', detail.transition) }}</p></div>
+                  <div class="rounded-lg bg-white/5 p-2.5"><b class="text-slate-400">{{ $t('views.shots.camPos') }}</b><p class="mt-1 font-mono text-slate-200">{{ JSON.stringify(detail.pos) }}</p></div>
+                  <div class="rounded-lg bg-white/5 p-2.5"><b class="text-slate-400">{{ $t('views.shots.lookAt') }}</b><p class="mt-1 font-mono text-slate-200">{{ JSON.stringify(detail.look) }}</p></div>
                 </div>
-                <div class="rounded-lg bg-white/5 p-2.5"><b class="text-slate-400">内容</b><p class="mt-1 whitespace-pre-wrap text-slate-300">{{ detail.content || '—' }}</p></div>
-                <div class="rounded-lg bg-white/5 p-2.5"><b class="text-emerald-300">动作</b><p class="mt-1 whitespace-pre-wrap text-slate-300">{{ detail.action || '—' }}</p></div>
-                <div class="rounded-lg bg-white/5 p-2.5"><b class="text-slate-400">声音</b><p class="mt-1 whitespace-pre-wrap text-slate-300">{{ detail.sound || '—' }}</p></div>
-                <div class="rounded-lg bg-white/5 p-2.5"><b class="text-slate-400">光影</b><p class="mt-1 whitespace-pre-wrap text-slate-300">{{ detail.lighting || '—' }}</p></div>
-                <div class="rounded-lg bg-white/5 p-2.5"><b class="text-amber-300">台词轨</b>
+                <div class="rounded-lg bg-white/5 p-2.5"><b class="text-slate-400">{{ $t('views.shots.col.content') }}</b><p class="mt-1 whitespace-pre-wrap text-slate-300">{{ detail.content || '—' }}</p></div>
+                <div class="rounded-lg bg-white/5 p-2.5"><b class="text-emerald-300">{{ $t('views.shots.col.action') }}</b><p class="mt-1 whitespace-pre-wrap text-slate-300">{{ detail.action || '—' }}</p></div>
+                <div class="rounded-lg bg-white/5 p-2.5"><b class="text-slate-400">{{ $t('views.shots.col.sound') }}</b><p class="mt-1 whitespace-pre-wrap text-slate-300">{{ detail.sound || '—' }}</p></div>
+                <div class="rounded-lg bg-white/5 p-2.5"><b class="text-slate-400">{{ $t('views.shots.col.light') }}</b><p class="mt-1 whitespace-pre-wrap text-slate-300">{{ detail.lighting || '—' }}</p></div>
+                <div class="rounded-lg bg-white/5 p-2.5"><b class="text-amber-300">{{ $t('views.shots.linesTrack') }}</b>
                   <div v-for="(L, i) in detail.lines || []" :key="i" class="mt-1 text-slate-300">
                     <span class="text-slate-500">at {{ L.at }}s</span> 【{{ spk(L.speaker) }}】{{ L.line }}
                   </div>
-                  <div v-if="!detail.lines?.length" class="mt-1 text-slate-500">无台词</div>
+                  <div v-if="!detail.lines?.length" class="mt-1 text-slate-500">{{ $t('views.shots.noLines') }}</div>
                 </div>
-                <div class="rounded-lg bg-violet-400/5 p-2.5"><b class="text-violet-300">参考帧提示词</b><p class="mt-1 whitespace-pre-wrap text-slate-300">{{ detail.prompt_image || detail.prompt || '—' }}</p></div>
-                <div class="rounded-lg bg-sky-400/5 p-2.5"><b class="text-sky-300">视频提示词</b><p class="mt-1 whitespace-pre-wrap text-slate-300">{{ detail.prompt_video || '尚未重建' }}</p></div>
-                <div class="rounded-lg bg-violet-400/5 p-2.5"><b class="text-violet-300">宫格提示词</b><p class="mt-1 whitespace-pre-wrap text-slate-300">{{ detail.prompt_grid || '待 LLM 补全' }}</p></div>
-                <div v-if="detail.asset_refs?.length" class="rounded-lg bg-cyan-400/5 p-2.5"><b class="text-cyan-300">关联资产</b><p class="mt-1 break-all text-slate-300">{{ detail.asset_refs.join('、') }}</p></div>
-                <div v-if="detail.asset_revisions" class="rounded-lg bg-amber-400/5 p-2.5"><b class="text-amber-300">资产修订</b><p class="mt-1 break-all text-slate-300">{{ Object.entries(detail.asset_revisions).map(([ref, rev]) => `${ref} v${rev}`).join(' · ') }}</p></div>
-                <div class="rounded-lg bg-white/5 p-2.5"><b class="text-slate-400">本镜产出</b><img v-if="shotOutput(detail)?.image" :src="mediaUrl(shotOutput(detail)!.image!)" class="mt-2 aspect-video w-full rounded-md border border-line bg-black object-contain" loading="lazy" :alt="`${detail.id} 参考图`" /></div>
-                <div v-if="actingPrompt" class="rounded-lg bg-emerald-400/10 p-2.5"><b class="text-emerald-300">演员层编译结果</b><p class="mt-1 whitespace-pre-wrap text-slate-300">{{ actingPrompt }}</p></div>
+                <div class="rounded-lg bg-violet-400/5 p-2.5"><b class="text-violet-300">{{ $t('views.shots.col.promptImage') }}</b><p class="mt-1 whitespace-pre-wrap text-slate-300">{{ detail.prompt_image || detail.prompt || '—' }}</p></div>
+                <div class="rounded-lg bg-sky-400/5 p-2.5"><b class="text-sky-300">{{ $t('views.shots.col.promptVideo') }}</b><p class="mt-1 whitespace-pre-wrap text-slate-300">{{ detail.prompt_video || $t('views.shots.notRebuilt') }}</p></div>
+                <div class="rounded-lg bg-violet-400/5 p-2.5"><b class="text-violet-300">{{ $t('views.shots.col.promptGrid') }}</b><p class="mt-1 whitespace-pre-wrap text-slate-300">{{ detail.prompt_grid || $t('views.shots.pendingLlm') }}</p></div>
+                <div v-if="detail.asset_refs?.length" class="rounded-lg bg-cyan-400/5 p-2.5"><b class="text-cyan-300">{{ $t('views.shots.linkedAssets') }}</b><p class="mt-1 break-all text-slate-300">{{ detail.asset_refs.join($t('common.listSep')) }}</p></div>
+                <div v-if="detail.asset_revisions" class="rounded-lg bg-amber-400/5 p-2.5"><b class="text-amber-300">{{ $t('views.shots.assetRevs') }}</b><p class="mt-1 break-all text-slate-300">{{ Object.entries(detail.asset_revisions).map(([ref, rev]) => `${ref} v${rev}`).join(' · ') }}</p></div>
+                <div class="rounded-lg bg-white/5 p-2.5"><b class="text-slate-400">{{ $t('views.shots.shotOutput') }}</b><img v-if="shotOutput(detail)?.image" :src="mediaUrl(shotOutput(detail)!.image!)" class="mt-2 aspect-video w-full rounded-md border border-line bg-black object-contain" loading="lazy" :alt="$t('views.shots.refAlt', { id: detail.id })" /></div>
+                <div v-if="actingPrompt" class="rounded-lg bg-emerald-400/10 p-2.5"><b class="text-emerald-300">{{ $t('views.shots.actingResult') }}</b><p class="mt-1 whitespace-pre-wrap text-slate-300">{{ actingPrompt }}</p></div>
               </div>
             </div>
-            <div v-else class="modal-h-lg flex-1 rounded-lg border border-dashed border-line p-6 text-center text-sm text-slate-500">从左侧选择一个镜头查看详情</div>
+            <div v-else class="modal-h-lg flex-1 rounded-lg border border-dashed border-line p-6 text-center text-sm text-slate-500">{{ $t('views.shots.pickShotLeft') }}</div>
           </div>
         </div>
       </section>
