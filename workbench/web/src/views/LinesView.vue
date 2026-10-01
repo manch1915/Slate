@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../i18n'
 // -*- coding: utf-8 -*-
 /** ② 台词：左 OCR 原文 / 中 合并时间轴 / 右 ASR 原文；行内编辑 + 导出 srt/txt。 */
 import { ref, computed, watch } from 'vue'
@@ -83,11 +84,11 @@ watch(asrVendor, (v) => {
 
 async function extract(kind: 'subtitles' | 'speech') {
   if (!app.current || !srcVideo.value) {
-    toast('请先选择素材视频', 'err')
+    toast(t('views.lines.pickVideo'), 'err')
     return
   }
   if (kind === 'speech' && asrEngine.value === 'cloud' && !asrVendor.value) {
-    toast('云端引擎需先选择厂商（环境页启用并配置 key）', 'err')
+    toast(t('views.lines.cloudNeedsVendor'), 'err')
     return
   }
   extracting.value = kind
@@ -99,18 +100,18 @@ async function extract(kind: 'subtitles' | 'speech') {
           : [srcVideo.value, '--model', asrModel.value, '--lang', 'zh']
         : [srcVideo.value]
     const r = await runGeneric({ step: kind, args })
-    if (!r.id) throw new Error(r.err || '任务未启动')
-    toast(`提取任务 #${r.id} 已启动`, 'ok')
+    if (!r.id) throw new Error(r.err || t('views.lines.jobNotStarted'))
+    toast(t('common.jobStarted', { what: t('views.lines.what.extract'), id: r.id }), 'ok')
     const label = asrEngine.value === 'cloud' ? `${asrVendor.value}/${asrCloudModel.value}` : asrModel.value
-    const j = await trackJob(r.id, kind === 'speech' ? `ASR 转写 (${label})` : 'OCR 字幕提取')
+    const j = await trackJob(r.id, kind === 'speech' ? t('views.lines.job.asr', { label }) : t('views.lines.job.ocr'))
     if (j.success) {
-      toast('提取完成，可点「合并台词」', 'ok')
+      toast(t('views.lines.extracted'), 'ok')
       await loadBasics() // 刷新项目树，让新 srt 出现在左右栏
     } else {
-      toast('提取失败，详情见任务抽屉', 'err')
+      toast(t('views.lines.extractFailed'), 'err')
     }
   } catch (e) {
-    toast(e instanceof Error ? e.message : '启动失败', 'err')
+    toast(e instanceof Error ? e.message : t('common.startFailed'), 'err')
   } finally {
     extracting.value = ''
   }
@@ -121,28 +122,28 @@ const fixing = ref(false)
 
 async function fixAsr() {
   if (!app.current || !srcVideo.value) {
-    toast('请先选择素材视频', 'err')
+    toast(t('views.lines.pickVideo'), 'err')
     return
   }
   const srt = srcVideo.value.replace(/\.[^.]+$/, '') + '_ASR.srt'
   if (!asrFiles.value.some((f) => f.path === srt)) {
-    toast('该视频还没有 ASR 产物，先跑 ② 提取', 'err')
+    toast(t('views.lines.noAsr'), 'err')
     return
   }
   fixing.value = true
   try {
     const r = await runGeneric({ step: 'fixasr', args: [srt] })
-    if (!r.id) throw new Error(r.err || '任务未启动')
-    toast(`纠错任务 #${r.id} 已启动`, 'ok')
-    const j = await trackJob(r.id, 'ASR AI 纠错')
+    if (!r.id) throw new Error(r.err || t('views.lines.jobNotStarted'))
+    toast(t('common.jobStarted', { what: t('views.lines.what.fix'), id: r.id }), 'ok')
+    const j = await trackJob(r.id, t('views.lines.job.fix'))
     if (j.success) {
-      toast('纠错完成，产物 *_ASR_修正.srt；确认后重新合并即生效', 'ok')
+      toast(t('views.lines.fixed'), 'ok')
       await loadBasics()
     } else {
-      toast('纠错失败，详情见任务抽屉', 'err')
+      toast(t('views.lines.fixFailed'), 'err')
     }
   } catch (e) {
-    toast(e instanceof Error ? e.message : '启动失败', 'err')
+    toast(e instanceof Error ? e.message : t('common.startFailed'), 'err')
   } finally {
     fixing.value = false
   }
@@ -152,11 +153,11 @@ const previewText = ref('')
 const previewTitle = ref('')
 async function preview(f: SrcFile) {
   previewTitle.value = f.file
-  previewText.value = '加载中…'
+  previewText.value = t('common.loading')
   try {
     previewText.value = await fetchText(f.path)
   } catch {
-    previewText.value = '读取失败'
+    previewText.value = t('views.lines.readFailed')
   }
 }
 
@@ -187,14 +188,14 @@ function previewSidecar() {
 /** 删除 AI 归属 sidecar（可重新跑 ④ 生成）。 */
 async function delSidecar() {
   if (!app.current) return
-  if (!confirm('确定删除 AI归属_台词角色.json？可重新跑「④ AI 人物归属」生成')) return
+  if (!confirm(t('views.lines.confirmDelSidecar'))) return
   try {
     await deleteFile(app.current, 'AI归属_台词角色.json')
-    toast('已删除归属 sidecar', 'ok')
+    toast(t('views.lines.sidecarDeleted'), 'ok')
     sidecar.value = null
     await loadBasics()
   } catch (e) {
-    toast(e instanceof Error ? e.message : '删除失败', 'err')
+    toast(e instanceof Error ? e.message : t('common.deleteFailed'), 'err')
   }
 }
 
@@ -218,7 +219,7 @@ async function load() {
       script.value = { speakers: {}, lines: [] }
       dirty.value = false
     } else {
-      toast('台词加载失败（后端可能未就绪）', 'err')
+      toast(t('views.lines.loadFailed'), 'err')
     }
   }
 }
@@ -228,16 +229,16 @@ async function merge() {
   merging.value = true
   try {
     const r = await runLinesMerge(app.current)
-    toast(`合并任务 #${r.id} 已启动`, 'ok')
-    const j = await trackJob(r.id, '台词合并（ASR 为主，OCR 补漏）')
+    toast(t('common.jobStarted', { what: t('views.lines.what.merge'), id: r.id }), 'ok')
+    const j = await trackJob(r.id, t('views.lines.job.merge'))
     if (j.success) {
-      toast('合并完成', 'ok')
+      toast(t('views.lines.merged'), 'ok')
       await load()
     } else {
-      toast('合并失败，详情见任务抽屉', 'err')
+      toast(t('views.lines.mergeFailed'), 'err')
     }
   } catch (e) {
-    toast(e instanceof Error ? e.message : '启动失败', 'err')
+    toast(e instanceof Error ? e.message : t('common.startFailed'), 'err')
   } finally {
     merging.value = false
   }
@@ -249,9 +250,9 @@ async function save() {
   try {
     await saveLines(app.current, scriptPayload())
     dirty.value = false
-    toast('台词已保存', 'ok')
+    toast(t('views.lines.saved'), 'ok')
   } catch (e) {
-    toast(e instanceof Error ? e.message : '保存失败', 'err')
+    toast(e instanceof Error ? e.message : t('common.saveFailed'), 'err')
   } finally {
     saving.value = false
   }
@@ -263,23 +264,23 @@ const attributing = ref(false)
 async function attribute() {
   if (!app.current) return
   if (!ocrFiles.value.length && !asrFiles.value.length) {
-    toast('请先跑 ① OCR / ② ASR 提取', 'err')
+    toast(t('views.lines.runExtractFirst'), 'err')
     return
   }
   attributing.value = true
   try {
     const r = await runLinesAttribute({ project: app.current })
-    if (!r.id) throw new Error(r.err || '任务未启动')
-    toast(`人物归属任务 #${r.id} 已启动`, 'ok')
-    const j = await trackJob(r.id, 'AI 台词人物归属')
+    if (!r.id) throw new Error(r.err || t('views.lines.jobNotStarted'))
+    toast(t('common.jobStarted', { what: t('views.lines.what.attribute'), id: r.id }), 'ok')
+    const j = await trackJob(r.id, t('views.lines.job.attribute'))
     if (j.success) {
-      toast('归属完成，自动合并中…', 'ok')
+      toast(t('views.lines.attributed'), 'ok')
       await merge() // 归属是合并的输入：链式触发合并，结果直接落到时间轴
     } else {
-      toast('人物归属失败，详情见任务抽屉', 'err')
+      toast(t('views.lines.attributeFailed'), 'err')
     }
   } catch (e) {
-    toast(e instanceof Error ? e.message : '启动失败', 'err')
+    toast(e instanceof Error ? e.message : t('common.startFailed'), 'err')
   } finally {
     attributing.value = false
   }
@@ -313,9 +314,9 @@ function lineIssues(l: { t_in?: number | null; t_out?: number | null; speaker?: 
   const badTime =
     l.t_in === null || l.t_in === undefined || l.t_out === null || l.t_out === undefined ||
     Number.isNaN(l.t_in) || Number.isNaN(l.t_out) || !(l.t_out > l.t_in) || !(l.t_in >= 0)
-  if (badTime) issues.push('缺时间')
-  if (!l.speaker || !String(l.speaker).trim()) issues.push('缺角色')
-  if (!l.text || !String(l.text).trim()) issues.push('缺台词')
+  if (badTime) issues.push(t('views.lines.issue.time'))
+  if (!l.speaker || !String(l.speaker).trim()) issues.push(t('views.lines.issue.speaker'))
+  if (!l.text || !String(l.text).trim()) issues.push(t('views.lines.issue.text'))
   return issues
 }
 const incompleteCount = computed(
@@ -374,7 +375,7 @@ function download(name: string, text: string) {
   a.download = name
   a.click()
   URL.revokeObjectURL(a.href)
-  toast(`已导出 ${name}`, 'ok')
+  toast(t('views.lines.exported', { name }), 'ok')
 }
 
 watch(() => app.current, load, { immediate: true })
@@ -384,92 +385,92 @@ watch(() => app.current, load, { immediate: true })
   <div class="page">
     <header class="mb-6 flex flex-wrap items-end gap-3">
       <div class="mr-auto">
-        <h1 class="grad-text text-2xl font-black">② 台词分析</h1>
-        <p class="mt-1 text-xs text-slate-500">ASR 语音为主时间轴，OCR 字幕仅补 ASR 漏听的台词；双击行可就地编辑</p>
+        <h1 class="grad-text text-2xl font-black">{{ $t('views.lines.title') }}</h1>
+        <p class="mt-1 text-xs text-slate-500">{{ $t('views.lines.intro') }}</p>
       </div>
       <button class="btn" :disabled="merging || !app.current" @click="merge">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.bolt" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        {{ merging ? '合并中…' : '合并台词' }}
+        {{ merging ? $t('views.lines.merging') : $t('views.lines.merge') }}
       </button>
       <button class="btn btn-ghost btn-sm" :disabled="!script" @click="exportSrt">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.download" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        导出 srt
+        {{ $t('views.lines.exportSrt') }}
       </button>
       <button class="btn btn-ghost btn-sm" :disabled="!script" @click="exportTxt">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.download" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        导出 txt
+        {{ $t('views.lines.exportTxt') }}
       </button>
       <button class="btn btn-sm" :disabled="!dirty || saving" @click="save">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.save" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        保存{{ saving ? '中…' : '' }}
+        {{ saving ? $t('common.saving') : $t('common.save') }}
       </button>
-      <span v-if="dirty" class="rounded-full bg-amber-400/15 px-2 py-0.5 text-2xs font-bold text-amber-300">● 未保存</span>
+      <span v-if="dirty" class="rounded-full bg-amber-400/15 px-2 py-0.5 text-2xs font-bold text-amber-300">{{ $t('views.lines.unsaved') }}</span>
     </header>
 
-    <EmptyState v-if="!app.current" title="请先在左侧选择项目" />
+    <EmptyState v-if="!app.current" :title="$t('common.pickProjectFirst')" />
 
     <template v-else>
       <!-- 台词解析入口：OCR / ASR 提取 -->
       <div class="glass mb-4 flex flex-wrap items-end gap-3 p-3">
         <label class="min-w-56 text-xs text-slate-400">
-          源视频（项目 拉片素材/）
+          {{ $t('common.srcVideo') }}
           <StyledSelect
             v-model="srcVideo"
             class="mt-1"
             :options="srcOptions"
             :labels="srcLabels"
             :storage-key="`wb.${app.current}.lines.video`"
-            placeholder="— 选择素材视频 —"
+            :placeholder="$t('common.pickVideo')"
           />
         </label>
         <label class="w-28 text-xs text-slate-400">
-          ASR 引擎
+          {{ $t('views.lines.engine') }}
           <StyledSelect
             v-model="asrEngine"
             class="mt-1"
             :options="['local', 'cloud']"
-            :labels="{ local: '本地 whisper', cloud: '云端 API' }"
+            :labels="{ local: $t('views.lines.engineLocal'), cloud: $t('views.lines.engineCloud') }"
             storage-key="wb.lines.asr.engine"
           />
         </label>
         <template v-if="asrEngine === 'local'">
           <label class="w-32 text-xs text-slate-400">
-            本地模型
+            {{ $t('views.lines.localModel') }}
             <StyledSelect
               v-model="asrModel"
               class="mt-1"
               :options="['tiny', 'base', 'small', 'medium', 'large-v3-turbo']"
-              :labels="{ tiny: 'tiny（最快）', base: 'base', small: 'small', medium: 'medium', 'large-v3-turbo': 'large-v3-turbo（最准）' }"
+              :labels="{ tiny: $t('views.lines.fastest', { m: 'tiny' }), base: 'base', small: 'small', medium: 'medium', 'large-v3-turbo': $t('views.lines.mostAccurate', { m: 'large-v3-turbo' }) }"
               storage-key="wb.lines.asr.model"
             />
           </label>
         </template>
         <template v-else>
           <label class="w-36 text-xs text-slate-400">
-            云端厂商
+            {{ $t('views.lines.cloudVendor') }}
             <StyledSelect
               v-model="asrVendor"
               class="mt-1"
               :options="cloudVendors.map((v) => v.id)"
               :labels="Object.fromEntries(cloudVendors.map((v) => [v.id, v.label]))"
               storage-key="wb.lines.asr.vendor"
-              placeholder="— 选厂商 —"
+              :placeholder="$t('views.lines.pickVendorPh')"
             />
           </label>
           <label class="w-48 text-xs text-slate-400">
-            云端 ASR 模型
-            <input v-model="asrCloudModel" class="input mt-1 text-xs" placeholder="选择厂商后填写其语音识别模型" />
+            {{ $t('views.lines.cloudModel') }}
+            <input v-model="asrCloudModel" class="input mt-1 text-xs" :placeholder="$t('views.lines.cloudModelPh')" />
           </label>
         </template>
         <button
           class="btn w-44 justify-center"
           style="--c1: #fbbf24; --c2: #fb923c"
           :disabled="!!extracting || !srcVideo"
-          title="可选：画面字幕 OCR。ASR 够准时无需跑；只在 ASR 漏听的时段作为补充进合并结果"
+          :title="$t('views.lines.ocrTitle')"
           @click="extract('subtitles')"
         >
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.chat" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          {{ extracting === 'subtitles' ? '提取中…' : '① OCR 字幕（可选）' }}
+          {{ extracting === 'subtitles' ? $t('views.lines.extracting') : $t('views.lines.btnOcr') }}
         </button>
         <button
           class="btn w-44 justify-center"
@@ -478,30 +479,30 @@ watch(() => app.current, load, { immediate: true })
           @click="extract('speech')"
         >
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.bolt" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          {{ extracting === 'speech' ? '转写中…' : '② 提取 ASR 语音' }}
+          {{ extracting === 'speech' ? $t('views.lines.transcribing') : $t('views.lines.btnAsr') }}
         </button>
         <button
           class="btn w-40 justify-center"
           style="--c1: #34d399; --c2: #22d3ee"
           :disabled="fixing || !srcVideo"
-          title="用已配置的文本模型批量订正 ASR 同音错字（文言/成语/人名），时间轴不变；产物 *_ASR_修正.srt，归属与合并自动优先采用"
+          :title="$t('views.lines.fixTitle')"
           @click="fixAsr"
         >
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.wand" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          {{ fixing ? '纠错中…' : '③ ASR AI 纠错' }}
+          {{ fixing ? $t('views.lines.fixing') : $t('views.lines.btnFix') }}
         </button>
         <button
           class="btn w-40 justify-center"
           style="--c1: #a78bfa; --c2: #e879f9"
           :disabled="attributing || (!ocrFiles.length && !asrFiles.length)"
-          title="vision 按镜头关键帧判断每句谁说的，基于 OCR + ASR（有修正版用修正版）产出归属 sidecar；完成后自动合并"
+          :title="$t('views.lines.attrTitle')"
           @click="attribute"
         >
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.wand" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          {{ attributing ? '归属中…' : '④ AI 人物归属' }}
+          {{ attributing ? $t('views.lines.attributing') : $t('views.lines.btnAttr') }}
         </button>
         <p class="flex-1 self-center text-right text-2xs leading-relaxed text-slate-500">
-          推荐 ② ASR（主）→ ③ 纠错 → ④ 归属 → 合并；① OCR 可选，只补 ASR 漏听的台词<br />合并以 ASR 时间轴为准：OCR 字幕窗口已被 ASR 覆盖即丢弃（不相似时挂 alt 备查）
+          {{ $t('views.lines.flow1') }}<br />{{ $t('views.lines.flow2') }}
         </p>
       </div>
 
@@ -511,10 +512,10 @@ watch(() => app.current, load, { immediate: true })
       <!-- OCR 原文 -->
       <section class="glass p-3">
         <h3 class="mb-2 flex items-center gap-1.5 text-xs font-bold text-slate-400">
-          <span class="h-2 w-2 rounded-full bg-amber-400"></span>① OCR 字幕原文
+          <span class="h-2 w-2 rounded-full bg-amber-400"></span>{{ $t('views.lines.ocrHead') }}
         </h3>
         <div v-if="!ocrFiles.length" class="py-4 text-center text-xs-plus text-slate-500">
-          暂无 *_字幕.srt / *_台词.txt<br />ASR 够准时可跳过 OCR（仅补漏用）
+          {{ $t('views.lines.noOcr1') }}<br />{{ $t('views.lines.noOcr2') }}
         </div>
         <div v-else class="space-y-1.5">
           <button
@@ -537,10 +538,10 @@ watch(() => app.current, load, { immediate: true })
       <!-- ASR 原文 -->
       <section class="glass p-3">
         <h3 class="mb-2 flex items-center gap-1.5 text-xs font-bold text-slate-400">
-          <span class="h-2 w-2 rounded-full bg-cyan-400"></span>② ASR 语音原文
+          <span class="h-2 w-2 rounded-full bg-cyan-400"></span>{{ $t('views.lines.asrHead') }}
         </h3>
         <div v-if="!asrFiles.length" class="py-4 text-center text-xs-plus text-slate-500">
-          暂无 *_ASR.srt<br />先跑 ② ASR 提取
+          {{ $t('views.lines.noAsr1') }}<br />{{ $t('views.lines.noAsr2') }}
         </div>
         <div v-else class="space-y-1.5">
           <button
@@ -563,10 +564,10 @@ watch(() => app.current, load, { immediate: true })
       <!-- AI 人物归属（sidecar） -->
       <section class="glass p-3">
         <h3 class="mb-2 flex items-center gap-1.5 text-xs font-bold text-slate-400">
-          <span class="h-2 w-2 rounded-full bg-fuchsia-400"></span>④ AI 人物归属
+          <span class="h-2 w-2 rounded-full bg-fuchsia-400"></span>{{ $t('views.lines.btnAttr') }}
         </h3>
         <div v-if="!sidecar" class="py-4 text-center text-xs-plus text-slate-500">
-          暂无归属结果<br />先跑 ④ AI 人物归属
+          {{ $t('views.lines.noSidecar1') }}<br />{{ $t('views.lines.noSidecar2') }}
         </div>
         <template v-else>
           <div class="flex flex-wrap gap-1.5">
@@ -578,12 +579,12 @@ watch(() => app.current, load, { immediate: true })
             >{{ spk.name }}</span>
           </div>
           <div class="mt-2 flex items-center justify-between text-2xs text-slate-500">
-            <span>{{ sidecar.lines.length }} 条已归属</span>
+            <span>{{ $t('views.lines.attributedN', { n: sidecar.lines.length }) }}</span>
             <span class="flex items-center gap-2">
-              <button class="text-cyan-300/70 transition hover:text-cyan-200" @click="previewSidecar">查看 JSON</button>
+              <button class="text-cyan-300/70 transition hover:text-cyan-200" @click="previewSidecar">{{ $t('views.lines.viewJson') }}</button>
               <button
                 class="btn-danger rounded-md p-0.5 transition"
-                title="删除 AI归属_台词角色.json（可重新跑 ④ 生成）"
+                :title="$t('views.lines.delSidecarTitle')"
                 @click="delSidecar"
               >
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="icons.trash" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -609,21 +610,21 @@ watch(() => app.current, load, { immediate: true })
       <section class="glass flex max-h-[calc(100vh-7rem)] flex-col p-3">
         <div class="mb-2 flex items-center justify-between gap-2">
           <h3 class="text-xs font-bold text-slate-400">
-            合并结果时间轴
+            {{ $t('views.lines.timeline') }}
             <span v-if="script" class="ml-1 font-normal text-slate-500">
-              {{ script.lines.length }} 行
-              <span v-if="incompleteCount" class="font-bold text-rose-400">· {{ incompleteCount }} 行不完整</span>
+              {{ $t('views.lines.rows', { n: script.lines.length }) }}
+              <span v-if="incompleteCount" class="font-bold text-rose-400">{{ $t('views.lines.incomplete', { n: incompleteCount }) }}</span>
             </span>
           </h3>
           <button class="btn btn-ghost btn-sm" :disabled="!script" @click="addLine">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path :d="icons.plus" stroke-linecap="round"/></svg>
-            加一行
+            {{ $t('views.lines.addLine') }}
           </button>
         </div>
 
-        <div v-if="!script" class="py-10 text-center text-xs-plus leading-relaxed text-slate-500">加载中…</div>
+        <div v-if="!script" class="py-10 text-center text-xs-plus leading-relaxed text-slate-500">{{ $t('common.loading') }}</div>
         <div v-else-if="!script.lines.length" class="py-10 text-center text-xs-plus leading-relaxed text-slate-500">
-          还没有合并台词<br />点右上角「合并台词」：ASR 为主时间轴，OCR 自动补漏
+          {{ $t('views.lines.noLines1') }}<br />{{ $t('views.lines.noLines2') }}
         </div>
 
         <div v-else class="min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1">
@@ -634,9 +635,9 @@ watch(() => app.current, load, { immediate: true })
             :class="lineIssues(l).length ? 'border-rose-500/40' : 'border-line-soft hover:border-amber-400/20'"
           >
             <div class="flex items-center gap-1.5 text-2xs tabular-nums text-slate-500">
-              <input v-model.number="l.t_in" type="number" step="0.1" min="0" class="input w-14 px-1 py-0.5 text-2xs" title="入点(秒)" @input="markDirty" />
+              <input v-model.number="l.t_in" type="number" step="0.1" min="0" class="input w-14 px-1 py-0.5 text-2xs" :title="$t('views.lines.tIn')" @input="markDirty" />
               <span>→</span>
-              <input v-model.number="l.t_out" type="number" step="0.1" min="0" class="input w-14 px-1 py-0.5 text-2xs" title="出点(秒)" @input="markDirty" />
+              <input v-model.number="l.t_out" type="number" step="0.1" min="0" class="input w-14 px-1 py-0.5 text-2xs" :title="$t('views.lines.tOut')" @input="markDirty" />
               <span v-for="iss in lineIssues(l)" :key="iss" class="pop-in rounded-full bg-rose-500/15 px-1.5 py-px text-2xs font-bold text-rose-400">{{ iss }}</span>
               <span class="flex-1"></span>
               <span class="rounded bg-white/5 px-1">{{ l.source || 'merge' }}</span>
@@ -650,7 +651,7 @@ watch(() => app.current, load, { immediate: true })
                   type="color"
                   class="h-4 w-6 cursor-pointer rounded border-0 bg-transparent p-0"
                   :value="speakerColor(l.speaker)"
-                  title="说话人颜色"
+                  :title="$t('views.lines.speakerColor')"
                   @input="setSpeakerColor(l.speaker, ($event.target as HTMLInputElement).value)"
                 />
               </div>
@@ -659,14 +660,14 @@ watch(() => app.current, load, { immediate: true })
                 :class="{ 'border-rose-500/50!': !l.speaker }"
                 :style="{ color: speakerColor(l.speaker), borderColor: speakerColor(l.speaker) + '44' }"
                 v-model="l.speaker"
-                title="说话人（角色，不可为空）"
+                :title="$t('views.lines.speakerTitle')"
                 @input="markDirty"
               />
               <input
                 v-model="l.text"
                 class="input flex-1 px-1.5 py-0.5 text-xs"
                 :class="{ 'border-rose-500/50!': !l.text }"
-                placeholder="台词文本（不可为空）"
+                :placeholder="$t('views.lines.textPh')"
                 @input="markDirty"
               />
             </div>
